@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>XrCAD</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { background: #000; overflow: hidden; }
+      canvas { display: block; width: 100vw !important; height: 100vh !important; }
+      #vr-button-container {
+        position: fixed;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="vr-button-container"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
