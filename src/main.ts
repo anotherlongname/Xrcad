@@ -2,10 +2,9 @@ import { VRButton } from 'three/addons/webxr/VRButton.js';
 import { SceneManager } from './scene/SceneManager';
 
 const manager = new SceneManager();
-
 document.body.appendChild(manager.renderer.domElement);
+document.getElementById('vr-button-container')!.appendChild(VRButton.createButton(manager.renderer));
 
-const vrButton = VRButton.createButton(manager.renderer);
-document.getElementById('vr-button-container')!.appendChild(vrButton);
+window.addEventListener('keydown', e => manager.handleKeyDown(e));
 
 manager.start();
