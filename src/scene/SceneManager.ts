@@ -7,6 +7,7 @@ import { SelectionManager } from '../input/SelectionManager';
 import { WorkspaceScaler } from '../input/WorkspaceScaler';
 import { PrimitiveMenu } from '../ui/PrimitiveMenu';
 import { ObjectInspector } from '../ui/ObjectInspector';
+import { NumberInputManager } from '../ui/NumberInputManager';
 import { Exporter } from '../io/Exporter';
 
 export class SceneManager {
@@ -54,7 +55,8 @@ export class SceneManager {
     this.scene.add(this.csgScene);
 
     // ── UI panels ─────────────────────────────────────────────────────────────
-    this.inspector = new ObjectInspector(this.csgScene);
+    const numInput = new NumberInputManager();
+    this.inspector = new ObjectInspector(this.csgScene, numInput);
     this.scene.add(this.inspector);
 
     // Menu is added to the scene (not to a grip) and starts hidden.
