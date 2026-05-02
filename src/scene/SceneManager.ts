@@ -9,6 +9,7 @@ import { PrimitiveMenu } from '../ui/PrimitiveMenu';
 import { ObjectInspector } from '../ui/ObjectInspector';
 import { NumberInputManager } from '../ui/NumberInputManager';
 import { Exporter } from '../io/Exporter';
+import { Units } from '../units/Units';
 
 export class SceneManager {
   readonly renderer: THREE.WebGLRenderer;
@@ -26,18 +27,33 @@ export class SceneManager {
 
   private readonly modelFactory = new XRControllerModelFactory();
 
+  private xrMode: 'immersive-vr' | 'immersive-ar' | null = null;
+  private lastScale = -1;
+
   // Reusable vectors for inspector/menu positioning
   private readonly _camPos = new THREE.Vector3();
   private readonly _forward = new THREE.Vector3();
 
   constructor() {
     // ── Renderer ──────────────────────────────────────────────────────────────
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.xr.enabled = true;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    this.renderer.xr.addEventListener('sessionstart', () => {
+      const session = this.renderer.xr.getSession();
+      this.xrMode = session?.environmentBlendMode !== 'opaque' ? 'immersive-ar' : 'immersive-vr';
+      if (this.xrMode === 'immersive-ar') this.scene.background = null;
+      this.menu.setXRMode(this.xrMode);
+    });
+    this.renderer.xr.addEventListener('sessionend', () => {
+      this.scene.background = new THREE.Color(0x0a0f1a);
+      this.xrMode = null;
+      this.menu.setXRMode(null);
+    });
 
     // ── Scene ─────────────────────────────────────────────────────────────────
     this.scene = new THREE.Scene();
@@ -61,9 +77,11 @@ export class SceneManager {
 
     // Menu is added to the scene (not to a grip) and starts hidden.
     // onShapeSelected fires when the user picks a shape type from the menu.
-    this.menu = new PrimitiveMenu(this.csgScene, (type, op) => {
-      this.selector.startPlacing(type, op);
-    });
+    this.menu = new PrimitiveMenu(
+      this.csgScene,
+      (type, op) => { this.selector.startPlacing(type, op); },
+      () => { void this.switchXRMode(); },
+    );
     this.scene.add(this.menu);
 
     // ── Controllers ───────────────────────────────────────────────────────────
@@ -146,6 +164,11 @@ export class SceneManager {
     this.selector.update(this._forward);
     this.scaler.update();
 
+    if (Units.workspaceScale !== this.lastScale) {
+      this.lastScale = Units.workspaceScale;
+      this.menu.dirty();
+    }
+
     this.updateFloatingPanels();
 
     this.renderer.render(this.scene, this.camera);
@@ -195,6 +218,20 @@ export class SceneManager {
         .addScaledVector(right, 0.18);
       this.inspector.position.y = Math.max(this._camPos.y - 0.1, 1.0);
       this.inspector.lookAt(this._camPos);
+    }
+  }
+
+  private async switchXRMode(): Promise<void> {
+    const current = this.renderer.xr.getSession();
+    if (current) await current.end();
+    const target = this.xrMode === 'immersive-ar' ? 'immersive-vr' : 'immersive-ar';
+    try {
+      const session = await (navigator.xr as XRSystem).requestSession(target, {
+        optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'],
+      });
+      await this.renderer.xr.setSession(session);
+    } catch {
+      // Mode not supported on this device — silently ignore.
     }
   }
 
