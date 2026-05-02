@@ -7,7 +7,6 @@ import { SelectionManager } from '../input/SelectionManager';
 import { WorkspaceScaler } from '../input/WorkspaceScaler';
 import { PrimitiveMenu } from '../ui/PrimitiveMenu';
 import { ObjectInspector } from '../ui/ObjectInspector';
-import { Units } from '../units/Units';
 import { Exporter } from '../io/Exporter';
 
 export class SceneManager {
@@ -25,6 +24,10 @@ export class SceneManager {
   private readonly inspector: ObjectInspector;
 
   private readonly modelFactory = new XRControllerModelFactory();
+
+  // Reusable vectors for inspector/menu positioning
+  private readonly _camPos = new THREE.Vector3();
+  private readonly _forward = new THREE.Vector3();
 
   constructor() {
     // ── Renderer ──────────────────────────────────────────────────────────────
@@ -47,29 +50,31 @@ export class SceneManager {
     this.grid = new WorkspaceGrid();
     this.scene.add(this.grid);
 
-    // ── CSG scene ─────────────────────────────────────────────────────────────
     this.csgScene = new CSGScene();
     this.scene.add(this.csgScene);
 
     // ── UI panels ─────────────────────────────────────────────────────────────
-    this.menu = new PrimitiveMenu(this.csgScene);
     this.inspector = new ObjectInspector(this.csgScene);
     this.scene.add(this.inspector);
 
+    // Menu is added to the scene (not to a grip) and starts hidden.
+    // onShapeSelected fires when the user picks a shape type from the menu.
+    this.menu = new PrimitiveMenu(this.csgScene, (type, op) => {
+      this.selector.startPlacing(type, op);
+    });
+    this.scene.add(this.menu);
+
     // ── Controllers ───────────────────────────────────────────────────────────
-    const [leftCtrl, leftGrip] = this.setupController(0);
+    const [leftCtrl, leftGrip]   = this.setupController(0);
     const [rightCtrl, rightGrip] = this.setupController(1);
 
-    this.left = new ControllerState(0, leftCtrl, leftGrip);
-    this.right = new ControllerState(1, rightCtrl, rightGrip);
-
-    // Menu lives on the left wrist
-    this.menu.rotation.x = -Math.PI / 4; // tilt toward user
-    this.menu.position.set(0, 0.06, -0.04);
-    leftGrip.add(this.menu);
+    this.left  = new ControllerState('left',  leftCtrl,  leftGrip);
+    this.right = new ControllerState('right', rightCtrl, rightGrip);
 
     // ── Input managers ────────────────────────────────────────────────────────
-    this.selector = new SelectionManager(this.right, this.csgScene, this.inspector, this.menu);
+    this.selector = new SelectionManager(
+      this.right, this.csgScene, this.scene, this.inspector, this.menu,
+    );
     this.scaler = new WorkspaceScaler(this.left, this.right, this.csgScene, this.grid);
 
     window.addEventListener('resize', this.onResize);
@@ -124,37 +129,77 @@ export class SceneManager {
     this.left.update(session);
     this.right.update(session);
 
+    // X button on left controller → toggle menu
+    if (this.left.primaryButtonJustDown) {
+      this.toggleMenu();
+    }
+
+    // X button on right controller (A) → dismiss menu / cancel placement
+    if (this.right.primaryButtonJustDown && this.menu.visible) {
+      this.dismissMenu();
+    }
+
     this.selector.update();
     this.scaler.update();
 
-    // Keep inspector facing the user when visible
-    if (this.inspector.visible) {
-      const xrCam = this.renderer.xr.getCamera();
-      const camPos = new THREE.Vector3().setFromMatrixPosition(xrCam.matrixWorld);
-      const forward = new THREE.Vector3(0, 0, -1).transformDirection(xrCam.matrixWorld);
-      forward.y = 0;
-      if (forward.lengthSq() > 0.001) forward.normalize();
-      this.inspector.position.copy(camPos).addScaledVector(forward, 0.55);
-      this.inspector.position.y = Math.max(camPos.y - 0.1, 1.0);
-      this.inspector.lookAt(camPos);
-    }
+    this.updateFloatingPanels();
 
     this.renderer.render(this.scene, this.camera);
   };
 
-  private onResize = (): void => {
-    this.camera.aspect = window.innerWidth / window.innerHeight;
-    this.camera.updateProjectionMatrix();
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-  };
+  private toggleMenu(): void {
+    if (this.menu.visible) {
+      this.dismissMenu();
+    } else {
+      this.positionMenuInFront();
+      this.menu.visible = true;
+    }
+  }
 
-  /** Keyboard shortcuts for desktop/2D browser testing. */
+  private dismissMenu(): void {
+    this.menu.visible = false;
+    this.menu.clearSelection();
+    this.selector.cancelPlacing();
+  }
+
+  private positionMenuInFront(): void {
+    const xrCam = this.renderer.xr.getCamera();
+    this._camPos.setFromMatrixPosition(xrCam.matrixWorld);
+    this._forward.set(0, 0, -1).transformDirection(xrCam.matrixWorld);
+    this._forward.y = 0;
+    if (this._forward.lengthSq() < 0.001) this._forward.set(0, 0, -1);
+    this._forward.normalize();
+
+    this.menu.position.copy(this._camPos).addScaledVector(this._forward, 0.65);
+    this.menu.position.y = Math.max(this._camPos.y - 0.05, 1.1);
+    this.menu.lookAt(this._camPos);
+  }
+
+  private updateFloatingPanels(): void {
+    const xrCam = this.renderer.xr.getCamera();
+    this._camPos.setFromMatrixPosition(xrCam.matrixWorld);
+    this._forward.set(0, 0, -1).transformDirection(xrCam.matrixWorld);
+    this._forward.y = 0;
+    if (this._forward.lengthSq() > 0.001) this._forward.normalize();
+
+    if (this.inspector.visible) {
+      // Inspector slightly to the right of center, at chest height
+      const right = new THREE.Vector3().crossVectors(this._forward, new THREE.Vector3(0, 1, 0)).normalize();
+      this.inspector.position
+        .copy(this._camPos)
+        .addScaledVector(this._forward, 0.55)
+        .addScaledVector(right, 0.18);
+      this.inspector.position.y = Math.max(this._camPos.y - 0.1, 1.0);
+      this.inspector.lookAt(this._camPos);
+    }
+  }
+
+  /** Desktop keyboard shortcuts for testing outside VR. */
   handleKeyDown(e: KeyboardEvent): void {
     if (e.key === 'b') this.csgScene.addObject('box');
     if (e.key === 'c') this.csgScene.addObject('cylinder');
     if (e.key === 's') this.csgScene.addObject('sphere');
     if (e.key === 'h') {
-      // toggle last object between add/subtract
       const last = this.csgScene.objects.at(-1);
       if (last) {
         last.operation = last.operation === 'add' ? 'subtract' : 'add';
@@ -167,4 +212,10 @@ export class SceneManager {
       Exporter.save(this.csgScene);
     }
   }
+
+  private onResize = (): void => {
+    this.camera.aspect = window.innerWidth / window.innerHeight;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+  };
 }
