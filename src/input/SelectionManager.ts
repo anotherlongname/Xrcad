@@ -7,7 +7,6 @@ import { ObjectInspector } from '../ui/ObjectInspector';
 import { PrimitiveMenu } from '../ui/PrimitiveMenu';
 import { Units } from '../units/Units';
 
-const GROUND = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const GRID_STEP_MM = 10;
 const Y_SNAP_MM    = 1;
 
@@ -109,20 +108,26 @@ export class SelectionManager {
   // ── Mode: placing ────────────────────────────────────────────────────────────
 
   private updatePlacing(cameraForward: THREE.Vector3): void {
-    const state = this.mode as Extract<Mode, { kind: 'placing' }>;
+    const state  = this.mode as Extract<Mode, { kind: 'placing' }>;
+    const ground = this.currentGroundPlane();
 
     for (const [ctrl, ray] of this.ctrlRays()) {
       const menuHit = this.menu.visible ? this.menu.hitTest(ray) : null;
       this.menu.onHover(menuHit);
       if (ctrl.triggerJustDown && menuHit) { this.menu.onPress(menuHit); return; }
 
-      if (ray.ray.intersectPlane(GROUND, this.hitPoint)) {
+      if (ray.ray.intersectPlane(ground, this.hitPoint)) {
         if (this.ghost) {
-          this.ghost.position.set(
-            Units.mmToScene(snapMm(Units.sceneToMm(this.hitPoint.x))),
-            state.restingY,
-            Units.mmToScene(snapMm(Units.sceneToMm(this.hitPoint.z))),
+          // hitPoint is world space; convert to csgScene local for snapping,
+          // then back to world space for the ghost mesh position.
+          const local = this.csgScene.worldToLocal(this.hitPoint.clone());
+          const snappedLocal = new THREE.Vector3(
+            Units.mmToScene(snapMm(Units.sceneToMm(local.x))),
+            Units.mmToScene(state.restingY),
+            Units.mmToScene(snapMm(Units.sceneToMm(local.z))),
           );
+          this.ghost.position.copy(this.csgScene.localToWorld(snappedLocal));
+          this.ghost.quaternion.copy(this.csgScene.quaternion);
           this.ghost.visible = true;
         }
         if (ctrl.triggerJustDown) { this.placeObject(state, cameraForward); return; }
@@ -131,8 +136,10 @@ export class SelectionManager {
   }
 
   private placeObject(state: Extract<Mode, { kind: 'placing' }>, cameraForward: THREE.Vector3): void {
-    const snapX    = snapMm(Units.sceneToMm(this.hitPoint.x));
-    const snapZ    = snapMm(Units.sceneToMm(this.hitPoint.z));
+    // hitPoint is in world space; convert to csgScene local space (mm) for storage.
+    const local    = this.csgScene.worldToLocal(this.hitPoint.clone());
+    const snapX    = snapMm(Units.sceneToMm(local.x));
+    const snapZ    = snapMm(Units.sceneToMm(local.z));
     const restingY = CSGObject.restingY(state.type, CSGObject.defaultDims(state.type));
 
     const obj = this.csgScene.addObject(state.type, state.op);
@@ -211,10 +218,11 @@ export class SelectionManager {
       if (hitObj !== obj)  { this.selectObject(hitObj); return; }
 
       // Same object → begin XZ drag
-      if (ray.ray.intersectPlane(GROUND, this.hitPoint)) {
+      const ground = this.currentGroundPlane();
+      if (ray.ray.intersectPlane(ground, this.hitPoint)) {
         state.drag = {
           ctrl, type: 'xz',
-          plane: GROUND,
+          plane: ground,
           startHit: this.hitPoint.clone(),
           startPosMm: obj.position.clone(),
         };
@@ -229,10 +237,14 @@ export class SelectionManager {
     let changed = false;
 
     if (drag.type === 'xz') {
-      const dx = Units.sceneToMm(this.hitPoint.x - drag.startHit.x);
-      const dz = Units.sceneToMm(this.hitPoint.z - drag.startHit.z);
-      obj.position.x = snapMm(drag.startPosMm.x + dx);
-      obj.position.z = snapMm(drag.startPosMm.z + dz);
+      // World-space delta rotated into csgScene local space (handles yaw rotation).
+      const worldDelta = new THREE.Vector3(
+        this.hitPoint.x - drag.startHit.x,
+        0,
+        this.hitPoint.z - drag.startHit.z,
+      ).applyQuaternion(this.csgScene.quaternion.clone().invert());
+      obj.position.x = snapMm(drag.startPosMm.x + Units.sceneToMm(worldDelta.x));
+      obj.position.z = snapMm(drag.startPosMm.z + Units.sceneToMm(worldDelta.z));
       changed = true;
     } else if (drag.type === 'y') {
       const dy = Units.sceneToMm(this.hitPoint.y - drag.startHit.y);
@@ -263,11 +275,11 @@ export class SelectionManager {
     if (horizFwd.lengthSq() < 0.001) horizFwd.set(0, 0, -1);
     horizFwd.normalize();
 
-    const objWorld = new THREE.Vector3(
+    const objWorld = this.csgScene.localToWorld(new THREE.Vector3(
       Units.mmToScene(obj.position.x),
       Units.mmToScene(obj.position.y),
       Units.mmToScene(obj.position.z),
-    );
+    ));
     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(horizFwd, objWorld);
 
     const startHit = new THREE.Vector3();
@@ -277,6 +289,11 @@ export class SelectionManager {
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
+
+  /** Ground plane in world space, follows the csgScene's current Y position. */
+  private currentGroundPlane(): THREE.Plane {
+    return new THREE.Plane(new THREE.Vector3(0, 1, 0), -this.csgScene.position.y);
+  }
 
   private selectObject(obj: CSGObject): void {
     this.mode = { kind: 'selected', object: obj, drag: null };
