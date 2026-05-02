@@ -73,20 +73,7 @@ export class WorkspaceScaler {
     const yawDelta =
       Math.atan2(currVec.x, currVec.z) - Math.atan2(this.prevVec.x, this.prevVec.z);
 
-    // Pitch: vertical tilt of the controller-to-controller vector
-    const prevHoriz = Math.hypot(this.prevVec.x, this.prevVec.z) || 1e-4;
-    const currHoriz = Math.hypot(currVec.x, currVec.z) || 1e-4;
-    const pitchDelta =
-      Math.atan2(currVec.y, currHoriz) - Math.atan2(this.prevVec.y, prevHoriz);
-
-    const yawQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yawDelta);
-
-    // Pitch axis: XZ-perpendicular of the current controller-pair direction
-    const pitchAxis = new THREE.Vector3(currVec.z, 0, -currVec.x);
-    if (pitchAxis.lengthSq() < 1e-8) pitchAxis.set(1, 0, 0); else pitchAxis.normalize();
-    const pitchQ = new THREE.Quaternion().setFromAxisAngle(pitchAxis, pitchDelta);
-
-    const totalQ = yawQ.multiply(pitchQ);
+    const totalQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yawDelta);
 
     // Rotate around the current grip midpoint, then translate
     for (const obj of [this.csgScene as THREE.Object3D, this.grid as THREE.Object3D]) {
