@@ -81,6 +81,7 @@ export class SceneManager {
       this.csgScene,
       (type, op) => { this.selector.startPlacing(type, op); },
       () => { void this.switchXRMode(); },
+      () => { this.scaler.toggleMode(); },
     );
     this.scene.add(this.menu);
 

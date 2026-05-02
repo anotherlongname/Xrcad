@@ -14,13 +14,15 @@ export class PrimitiveMenu extends VRPanel {
   selectedType: PrimitiveType | null = null;
   nextOp: CSGOperation = 'add';
   private xrMode: 'immersive-vr' | 'immersive-ar' | null = null;
+  private gripMode: 'scale' | 'transform' = 'scale';
 
   constructor(
     private readonly scene: CSGScene,
     private readonly onShapeSelected: (type: PrimitiveType, op: CSGOperation) => void,
     private readonly onModeToggle: () => void,
+    private readonly onGripModeChange: (mode: 'scale' | 'transform') => void,
   ) {
-    // Slightly taller panel to accommodate scale + mode row
+    // Taller panel to accommodate scale + mode row + grip-mode row
     super(0.30, 0.44, 512);
 
     const row = (r: number) => PAD + 44 + r * (BH + PAD);
@@ -71,6 +73,15 @@ export class PrimitiveMenu extends VRPanel {
       action: () => onModeToggle(),
     });
 
+    // ── Grip mode toggle ─────────────────────────────────────────────────────
+    const gripRow = row(6);
+    this.buttons.push(
+      { id: 'grip_scale', label: 'SCALE', x: PAD,  y: gripRow, w: BW, h: BH,
+        action: () => { this.gripMode = 'scale';     this.dirty(); onGripModeChange('scale'); } },
+      { id: 'grip_move',  label: 'MOVE+ROT', x: COL2, y: gripRow, w: BW, h: BH,
+        action: () => { this.gripMode = 'transform'; this.dirty(); onGripModeChange('transform'); } },
+    );
+
     this.visible = false;
     this.dirty();
   }
@@ -107,13 +118,17 @@ export class PrimitiveMenu extends VRPanel {
     this.text(`XrCAD  [X] to close`, this.cw / 2, 10, 22, '#93c5fd', 'center');
 
     for (const btn of this.buttons) {
-      const isPrimBtn = btn.id.startsWith('prim_');
+      const isPrimBtn  = btn.id.startsWith('prim_');
       const isSelected = isPrimBtn && btn.id === `prim_${this.selectedType}`;
       const isOpBtn    = btn.id === 'solid' || btn.id === 'hole';
       const isActiveOp =
         (btn.id === 'solid' && this.nextOp === 'add') ||
         (btn.id === 'hole'  && this.nextOp === 'subtract');
-      this.button(btn, isSelected || (isOpBtn && isActiveOp));
+      const isGripBtn    = btn.id === 'grip_scale' || btn.id === 'grip_move';
+      const isActiveGrip =
+        (btn.id === 'grip_scale' && this.gripMode === 'scale') ||
+        (btn.id === 'grip_move'  && this.gripMode === 'transform');
+      this.button(btn, isSelected || (isOpBtn && isActiveOp) || (isGripBtn && isActiveGrip));
     }
 
     // ── Scale info (left of the mode toggle button) ─────────────────────────
@@ -126,5 +141,9 @@ export class PrimitiveMenu extends VRPanel {
     // Current mode badge
     const modeColor = this.xrMode === 'immersive-ar' ? '#34d399' : '#93c5fd';
     this.text(modeLabel, PAD, scaleRow + 44, 14, modeColor);
+
+    // Grip section label
+    const gripLabelY = PAD + 44 + 6 * (BH + PAD) - 16;
+    this.text('both grips', PAD, gripLabelY, 12, '#64748b');
   }
 }
