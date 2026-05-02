@@ -44,6 +44,8 @@ export class SceneManager {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     this.renderer.xr.addEventListener('sessionstart', () => {
+      // Disable Fixed Foveated Rendering to remove the visible low-res edge band.
+      this.renderer.xr.setFoveation(0);
       const session = this.renderer.xr.getSession();
       this.xrMode = session?.environmentBlendMode !== 'opaque' ? 'immersive-ar' : 'immersive-vr';
       if (this.xrMode === 'immersive-ar') this.scene.background = null;
