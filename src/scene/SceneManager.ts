@@ -73,7 +73,7 @@ export class SceneManager {
 
     // ── Input managers ────────────────────────────────────────────────────────
     this.selector = new SelectionManager(
-      this.right, this.csgScene, this.scene, this.inspector, this.menu,
+      this.left, this.right, this.csgScene, this.scene, this.inspector, this.menu,
     );
     this.scaler = new WorkspaceScaler(this.left, this.right, this.csgScene, this.grid);
 
@@ -139,7 +139,9 @@ export class SceneManager {
       this.dismissMenu();
     }
 
-    this.selector.update();
+    const xrCam = this.renderer.xr.getCamera();
+    this._forward.set(0, 0, -1).transformDirection(xrCam.matrixWorld).normalize();
+    this.selector.update(this._forward);
     this.scaler.update();
 
     this.updateFloatingPanels();
