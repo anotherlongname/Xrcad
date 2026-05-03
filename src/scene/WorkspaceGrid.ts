@@ -3,7 +3,7 @@ import { Units } from '../units/Units';
 
 /**
  * Reference grid at Y=0 with minor lines every 10mm and major lines every 100mm.
- * Red axis = X, Blue axis = Z, white dot at origin.
+ * Red axis = X, Blue axis = Y (depth in CAD convention), white dot at origin.
  * Call rebuild() after Units.workspaceScale changes.
  */
 export class WorkspaceGrid extends THREE.Group {

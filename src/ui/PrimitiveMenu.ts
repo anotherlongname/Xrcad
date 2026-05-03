@@ -22,6 +22,7 @@ export class PrimitiveMenu extends VRPanel {
     private readonly onModeToggle: () => void,
     private readonly onGripModeChange: (mode: 'scale' | 'transform') => void,
     private readonly onImportSTL: (op: CSGOperation) => void,
+    private readonly onExitXR: () => void,
   ) {
     super(0.30, 0.44, 512);
 
@@ -89,6 +90,14 @@ export class PrimitiveMenu extends VRPanel {
         action: () => { this.gripMode = 'transform'; this.dirty(); onGripModeChange('transform'); } },
     );
 
+    // ── Exit XR ──────────────────────────────────────────────────────────────
+    this.buttons.push({
+      id: 'exit_xr',
+      label: 'EXIT VR',
+      x: PAD, y: row(8), w: BW * 2 + PAD, h: BH,
+      action: () => onExitXR(),
+    });
+
     this.visible = false;
     this.dirty();
   }
@@ -106,13 +115,13 @@ export class PrimitiveMenu extends VRPanel {
     this.dirty();
   }
 
-  /** Call when the XR session mode changes so the button label stays current. */
+  /** Call when the XR session mode changes so the button labels stay current. */
   setXRMode(mode: 'immersive-vr' | 'immersive-ar' | null): void {
     this.xrMode = mode;
     const modeBtn = this.buttons.find(b => b.id === 'mode_toggle');
-    if (modeBtn) {
-      modeBtn.label = mode === 'immersive-ar' ? '→ VR' : '→ AR';
-    }
+    if (modeBtn) modeBtn.label = mode === 'immersive-ar' ? '→ VR' : '→ AR';
+    const exitBtn = this.buttons.find(b => b.id === 'exit_xr');
+    if (exitBtn) exitBtn.label = mode === 'immersive-ar' ? 'EXIT AR' : 'EXIT VR';
     this.dirty();
   }
 

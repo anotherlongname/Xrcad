@@ -39,17 +39,17 @@ export class CSGObject {
 
   /** Raw geometry with coordinates in mm; set for type === 'imported'. */
   importedGeometry: THREE.BufferGeometry | null = null;
-  /** Half-height in mm used as Y-drag lower bound for imported meshes. */
-  importedRestingYMm = 0;
+  /** Half-height in mm used as Z-drag lower bound for imported meshes. */
+  importedRestingZMm = 0;
 
   static defaultDims(type: PrimitiveType): Dimensions {
     return { ...DEFAULTS[type] };
   }
 
-  /** Y offset in mm so the primitive rests on the grid. */
-  static restingY(type: PrimitiveType, dims: Dimensions, importedRestingY = 0): number {
+  /** Z offset in mm so the primitive rests on the grid (CAD Z = up/down). */
+  static restingZ(type: PrimitiveType, dims: Dimensions, importedRestingZ = 0): number {
     switch (type) {
-      case 'imported':  return importedRestingY;
+      case 'imported':  return importedRestingZ;
       case 'box':      return (dims.height ?? 20) / 2;
       case 'sphere':   return dims.radius ?? 10;
       case 'cylinder': return (dims.height ?? 20) / 2;
@@ -69,7 +69,7 @@ export class CSGObject {
     this.type = type;
     this.operation = operation;
     this.dims = { ...DEFAULTS[type], ...dims };
-    this.position = position?.clone() ?? new THREE.Vector3(0, CSGObject.restingY(type, this.dims), 0);
+    this.position = position?.clone() ?? new THREE.Vector3(0, 0, CSGObject.restingZ(type, this.dims));
     this.rotation = new THREE.Euler();
     this.brush = this.buildBrush();
   }
@@ -129,10 +129,12 @@ export class CSGObject {
   }
 
   private applyTransformToBrush(brush: Brush): void {
+    // CAD uses Z-up convention; Three.js uses Y-up. Remap here so the scene
+    // renders correctly while the inspector shows the CAD-native axes.
     brush.position.set(
-      Units.mmToScene(this.position.x),
-      Units.mmToScene(this.position.y),
-      Units.mmToScene(this.position.z),
+      Units.mmToScene(this.position.x),  // CAD X → Three.js X (unchanged)
+      Units.mmToScene(this.position.z),  // CAD Z (up) → Three.js Y (up)
+      Units.mmToScene(this.position.y),  // CAD Y (depth) → Three.js Z (depth)
     );
     brush.rotation.copy(this.rotation);
     brush.updateMatrixWorld(true);

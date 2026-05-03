@@ -130,7 +130,8 @@ export class ObjectInspector extends VRPanel {
     });
 
     // ── Position rows ──────────────────────────────────────────────────────
-    const axes: ['x' | 'y' | 'z', string][] = [['x', 'X'], ['y', 'Y'], ['z', 'Z']];
+    // Display order: X (left/right), Z (up/down), Y (depth) — CAD Z-up convention.
+    const axes: ['x' | 'y' | 'z', string][] = [['x', 'X'], ['z', 'Z'], ['y', 'Y']];
     axes.forEach(([axis, label], i) => {
       const y = this.posRowY(i);
 
@@ -207,7 +208,7 @@ export class ObjectInspector extends VRPanel {
     const posHeaderY = this.rowY(this.dimEntries().length) + PAD;
     this.text('position', PAD, posHeaderY, 14, '#64748b');
 
-    (['x', 'y', 'z'] as const).forEach((axis, i) => {
+    (['x', 'z', 'y'] as const).forEach((axis, i) => {
       const y = this.posRowY(i);
       this.text(axis.toUpperCase(), PAD, y + 9, 16, '#94a3b8');
       this.text('mm', PLUS_X + PLUS_W + 4, y + 9, 14, '#475569');

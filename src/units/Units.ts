@@ -7,7 +7,7 @@
  * Example: a 10mm bolt at scale=10 occupies 0.1m (10cm) in VR space.
  */
 export class Units {
-  static workspaceScale = 10; // default: 10x magnification (comfortable for small parts)
+  static workspaceScale = 1; // default: 1:1 real-world scale
 
   static mmToScene(mm: number): number {
     return (mm / 1000) * Units.workspaceScale;

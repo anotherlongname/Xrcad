@@ -43,6 +43,27 @@
     </style>
   </head>
   <body>
+    <!-- dom-overlay root — must be present at session-request time; transparent when idle -->
+    <div id="xr-overlay" style="position:fixed;inset:0;pointer-events:none;z-index:100;">
+      <div id="xr-import-panel"
+           style="display:none; pointer-events:auto; position:absolute;
+                  bottom:80px; left:50%; transform:translateX(-50%);
+                  background:#111827; border:1px solid #1e3a6a;
+                  padding:20px 24px; font-family:monospace; color:#e0e8ff;
+                  text-align:center; min-width:260px; z-index:101;">
+        <div style="margin-bottom:14px;font-size:15px;">Select an STL file</div>
+        <label style="display:block; background:#0f172a; border:1px solid #3b5bdb;
+                      padding:10px 20px; cursor:pointer; margin-bottom:10px; font-size:14px;">
+          Browse&hellip;
+          <input id="xr-file-input" type="file" accept=".stl" style="display:none;">
+        </label>
+        <button id="xr-import-cancel"
+                style="background:none; border:1px solid #1e3a6a; padding:6px 14px;
+                       color:#64748b; cursor:pointer; font-family:monospace; font-size:13px;">
+          Cancel
+        </button>
+      </div>
+    </div>
     <div id="vr-button-container"></div>
     <div id="stl-prep">
       <button id="stl-prep-btn">Prepare STL for VR</button>
