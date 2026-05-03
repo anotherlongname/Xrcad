@@ -131,9 +131,19 @@ export class ObjectInspector extends VRPanel {
 
     // ── Position rows ──────────────────────────────────────────────────────
     // Display order: X (left/right), Z (up/down), Y (depth) — CAD Z-up convention.
+    // Z is displayed as base (bottom face) position, not center, so the value
+    // reads 0mm when the object sits flush on the grid.
     const axes: ['x' | 'y' | 'z', string][] = [['x', 'X'], ['z', 'Z'], ['y', 'Y']];
     axes.forEach(([axis, label], i) => {
       const y = this.posRowY(i);
+      const isZ = axis === 'z';
+
+      // Base Z = center Z − half-height; other axes display as center.
+      const displayVal = (): number => {
+        if (!isZ) return Math.round(obj.position[axis]);
+        const h = CSGObject.restingZ(obj.type, obj.dims, obj.importedRestingZMm);
+        return Math.round(obj.position.z - h);
+      };
 
       this.buttons.push({
         id: `p_${axis}_minus`,
@@ -147,11 +157,16 @@ export class ObjectInspector extends VRPanel {
 
       this.buttons.push({
         id: `p_${axis}_val`,
-        label: `${Math.round(obj.position[axis])}`,
+        label: `${displayVal()}`,
         x: VAL_X, y, w: VAL_W, h: BH,
         action: () => {
-          this.numInput.open(obj.position[axis], `pos ${label} (mm)`, (v) => {
-            obj.position[axis] = Math.round(v);
+          this.numInput.open(displayVal(), `pos ${label} (mm)`, (v) => {
+            if (isZ) {
+              const h = CSGObject.restingZ(obj.type, obj.dims, obj.importedRestingZMm);
+              obj.position.z = Math.round(v) + h;
+            } else {
+              obj.position[axis] = Math.round(v);
+            }
             this.afterPosChange(obj);
           });
         },
