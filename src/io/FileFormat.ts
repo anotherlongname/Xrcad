@@ -9,7 +9,9 @@ export interface SerializedObject {
   rotation: { x: number; y: number; z: number };
   /** Base64-encoded Float32Array vertex positions; only present when type === 'imported'. */
   geometryData?: string;
-  /** Half-height in mm for Y-drag lower bound; only present when type === 'imported'. */
+  /** Half-height in mm for Z-drag lower bound; only present when type === 'imported'. */
+  importedRestingZ?: number;
+  /** @deprecated renamed to importedRestingZ; kept for reading older files. */
   importedRestingY?: number;
 }
 

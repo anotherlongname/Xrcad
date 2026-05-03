@@ -27,7 +27,7 @@ function base64ToFloat32(b64: string): Float32Array {
  * raw coordinates fall outside the plausible mm range (< 1 mm or > 500 mm).
  * This handles STLs exported in metres or inches without breaking normal mm files.
  */
-function processSTLBuffer(buffer: ArrayBuffer): { geometryData: string; halfH: number } {
+function processSTLBuffer(buffer: ArrayBuffer): { geometryData: string; restingZ: number } {
   const geometry = new STLLoader().parse(buffer);
   geometry.computeBoundingBox();
   const box = geometry.boundingBox!;
@@ -46,9 +46,11 @@ function processSTLBuffer(buffer: ArrayBuffer): { geometryData: string; halfH: n
     size.multiplyScalar(s);
   }
 
-  const halfH = size.y / 2;
+  // Use the geometry's Y extent (Three.js Y = up) as the resting offset so the
+  // object's bottom face lands on the Z=0 CAD floor (= Three.js Y=0).
+  const restingZ = size.y / 2;
   const positions = geometry.attributes.position.array as Float32Array;
-  return { geometryData: float32ToBase64(positions), halfH };
+  return { geometryData: float32ToBase64(positions), restingZ };
 }
 
 function geometryFromStaged(geometryData: string): THREE.BufferGeometry {
@@ -141,9 +143,9 @@ export class Importer {
       if (!file) return;
       try {
         const buffer = await file.arrayBuffer();
-        const { geometryData, halfH } = processSTLBuffer(buffer);
+        const { geometryData, restingZ } = processSTLBuffer(buffer);
         const geometry = geometryFromStaged(geometryData);
-        const obj = scene.addImportedObject(geometry, halfH, op);
+        const obj = scene.addImportedObject(geometry, restingZ, op);
         onImported(obj);
       } catch (e) {
         console.error('[XrCAD] STL overlay import failed:', e);
@@ -175,9 +177,11 @@ export class Importer {
     if (raw) {
       try {
         localStorage.removeItem(STAGED_STL_KEY);
-        const { geometryData, halfH } = JSON.parse(raw) as { geometryData: string; halfH: number };
+        const parsed = JSON.parse(raw) as { geometryData: string; restingZ?: number; halfH?: number };
+        const { geometryData, restingZ: rz, halfH } = parsed;
+        const restingZ = rz ?? halfH ?? 0;
         const geometry = geometryFromStaged(geometryData);
-        const obj = scene.addImportedObject(geometry, halfH, op);
+        const obj = scene.addImportedObject(geometry, restingZ, op);
         onImported(obj);
       } catch (e) {
         console.error('[XrCAD] Failed to load staged STL:', e);
@@ -200,9 +204,9 @@ export class Importer {
       if (!file) return;
       try {
         const buffer = await file.arrayBuffer();
-        const { geometryData, halfH } = processSTLBuffer(buffer);
+        const { geometryData, restingZ } = processSTLBuffer(buffer);
         const geometry = geometryFromStaged(geometryData);
-        const obj = scene.addImportedObject(geometry, halfH, op);
+        const obj = scene.addImportedObject(geometry, restingZ, op);
         onImported(obj);
       } catch (e) {
         console.error('[XrCAD] STL import failed:', e);

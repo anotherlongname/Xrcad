@@ -250,19 +250,20 @@ export class SceneManager {
     const xrCam = this.renderer.xr.getCamera();
     const fwd = new THREE.Vector3(0, 0, -1)
       .transformDirection(xrCam.matrixWorld)
-      .setY(0);
+      .setY(0);  // zero Three.js Y to stay on the horizontal plane
     if (fwd.lengthSq() < 0.001) fwd.set(0, 0, -1);
     fwd.normalize();
 
     const camWorld = new THREE.Vector3().setFromMatrixPosition(xrCam.matrixWorld);
     const targetWorld = camWorld.clone().addScaledVector(fwd, 0.35);
 
-    // Transform world position into csgScene local space (accounts for workspace move/rotate)
+    // Transform into csgScene local space (accounts for workspace move/rotate).
+    // Three.js local: X = CAD X; Z = CAD Y (depth).  CAD Z (up) is left unchanged.
     const targetLocal = this.csgScene.worldToLocal(targetWorld);
     const mmPerUnit = 1 / Units.mmToScene(1);
-    obj.position.x = targetLocal.x * mmPerUnit;
-    obj.position.z = targetLocal.z * mmPerUnit;
-    // Y stays as restingYMm set by addImportedObject
+    obj.position.x = targetLocal.x * mmPerUnit;   // Three.js X → CAD X
+    obj.position.y = targetLocal.z * mmPerUnit;   // Three.js Z (depth) → CAD Y
+    // obj.position.z stays as restingZMm set by addImportedObject
     obj.rebuildBrush();
   }
 

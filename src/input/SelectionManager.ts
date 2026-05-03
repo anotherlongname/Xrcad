@@ -8,18 +8,19 @@ import { PrimitiveMenu } from '../ui/PrimitiveMenu';
 import { Units } from '../units/Units';
 
 const GRID_STEP_MM = 10;
-const Y_SNAP_MM    = 1;
+const Z_SNAP_MM    = 1;
 
 function snapMm(mm: number): number {
   return Math.round(mm / GRID_STEP_MM) * GRID_STEP_MM;
 }
 
-type DragType = 'xz' | 'y' | 'resize';
+// CAD convention: XY is the horizontal plane, Z is up/down.
+type DragType = 'xy' | 'z' | 'resize';
 
 interface ActiveDrag {
   ctrl: ControllerState;
   type: DragType;
-  /** Drag plane for XZ / Y; resize uses ResizeHandles' own plane. */
+  /** Drag plane for XY / Z; resize uses ResizeHandles' own plane. */
   plane: THREE.Plane;
   startHit: THREE.Vector3;
   /** Object position in mm at drag start, for delta maths. */
@@ -28,7 +29,7 @@ interface ActiveDrag {
 
 type Mode =
   | { kind: 'idle' }
-  | { kind: 'placing'; type: PrimitiveType; op: CSGOperation; restingY: number }
+  | { kind: 'placing'; type: PrimitiveType; op: CSGOperation; restingZ: number }
   | { kind: 'selected'; object: CSGObject; drag: ActiveDrag | null };
 
 /**
@@ -36,8 +37,8 @@ type Mode =
  *  idle     — ray hovers panels; either trigger on object → selected
  *  placing  — ghost follows ground; either trigger → place + auto-select
  *  selected — three drag sub-modes, both controllers supported:
- *               trigger on object  → XZ ground-plane drag
- *               grip (single hand) → Y (vertical) drag
+ *               trigger on object  → XY ground-plane drag (CAD X, Y)
+ *               grip (single hand) → Z (vertical) drag
  *               trigger on handle  → resize drag
  */
 export class SelectionManager {
@@ -72,9 +73,9 @@ export class SelectionManager {
   startPlacing(type: PrimitiveType, op: CSGOperation): void {
     this.clearGhost();
     this.deselectObject();
-    const restingY = Units.mmToScene(CSGObject.restingY(type, CSGObject.defaultDims(type)));
-    this.mode = { kind: 'placing', type, op, restingY };
-    this.buildGhost(type, op, restingY);
+    const restingZ = Units.mmToScene(CSGObject.restingZ(type, CSGObject.defaultDims(type)));
+    this.mode = { kind: 'placing', type, op, restingZ };
+    this.buildGhost(type, op, restingZ);
   }
 
   cancelPlacing(): void {
@@ -126,11 +127,12 @@ export class SelectionManager {
         if (this.ghost) {
           // hitPoint is world space; convert to csgScene local for snapping,
           // then back to world space for the ghost mesh position.
+          // Three.js local: X=CAD X, Y=CAD Z (up), Z=CAD Y (depth).
           const local = this.csgScene.worldToLocal(this.hitPoint.clone());
           const snappedLocal = new THREE.Vector3(
-            Units.mmToScene(snapMm(Units.sceneToMm(local.x))),
-            Units.mmToScene(state.restingY),
-            Units.mmToScene(snapMm(Units.sceneToMm(local.z))),
+            Units.mmToScene(snapMm(Units.sceneToMm(local.x))),  // Three.js X (snapped)
+            state.restingZ,                                     // Three.js Y = resting height
+            Units.mmToScene(snapMm(Units.sceneToMm(local.z))),  // Three.js Z (snapped)
           );
           this.ghost.position.copy(this.csgScene.localToWorld(snappedLocal));
           this.ghost.quaternion.copy(this.csgScene.quaternion);
@@ -142,14 +144,15 @@ export class SelectionManager {
   }
 
   private placeObject(state: Extract<Mode, { kind: 'placing' }>, cameraForward: THREE.Vector3): void {
-    // hitPoint is in world space; convert to csgScene local space (mm) for storage.
+    // hitPoint is in world space; convert to csgScene local space.
+    // Three.js X → CAD X; Three.js Z → CAD Y (depth); CAD Z = resting height.
     const local    = this.csgScene.worldToLocal(this.hitPoint.clone());
     const snapX    = snapMm(Units.sceneToMm(local.x));
-    const snapZ    = snapMm(Units.sceneToMm(local.z));
-    const restingY = CSGObject.restingY(state.type, CSGObject.defaultDims(state.type));
+    const snapY    = snapMm(Units.sceneToMm(local.z));  // Three.js Z → CAD Y
+    const restingZ = CSGObject.restingZ(state.type, CSGObject.defaultDims(state.type));
 
     const obj = this.csgScene.addObject(state.type, state.op);
-    obj.position.set(snapX, restingY, snapZ);
+    obj.position.set(snapX, snapY, restingZ);
     obj.rebuildBrush();
     this.csgScene.compile();
 
@@ -167,7 +170,7 @@ export class SelectionManager {
     // ── End active drag when the controlling button is released ──────────────
     if (state.drag) {
       const { ctrl, type } = state.drag;
-      const buttonStillDown = type === 'y' ? ctrl.gripDown : ctrl.triggerDown;
+      const buttonStillDown = type === 'z' ? ctrl.gripDown : ctrl.triggerDown;
       if (!buttonStillDown) {
         if (type === 'resize') this.resizeHandles.endDrag();
         state.drag = null;
@@ -193,9 +196,9 @@ export class SelectionManager {
       this.menu.onHover(menuHit);
       this.resizeHandles.onHover(handleSlot);
 
-      // ── Grip → Y-axis drag (only when the other grip is NOT down) ──────────
+      // ── Grip → Z-axis drag (only when the other grip is NOT down) ──────────
       if (ctrl.gripJustDown && !otherCtrl.gripDown) {
-        state.drag = this.beginYDrag(ctrl, ray, obj, cameraForward);
+        state.drag = this.beginZDrag(ctrl, ray, obj, cameraForward);
         return;
       }
 
@@ -223,11 +226,11 @@ export class SelectionManager {
       if (hitObj === null) { this.deselectObject(); return; }
       if (hitObj !== obj)  { this.selectObject(hitObj); return; }
 
-      // Same object → begin XZ drag
+      // Same object → begin XY ground-plane drag
       const ground = this.currentGroundPlane();
       if (ray.ray.intersectPlane(ground, this.hitPoint)) {
         state.drag = {
-          ctrl, type: 'xz',
+          ctrl, type: 'xy',
           plane: ground,
           startHit: this.hitPoint.clone(),
           startPosMm: obj.position.clone(),
@@ -242,20 +245,22 @@ export class SelectionManager {
 
     let changed = false;
 
-    if (drag.type === 'xz') {
+    if (drag.type === 'xy') {
       // World-space delta rotated into csgScene local space (handles yaw rotation).
+      // Three.js X delta → CAD X delta; Three.js Z delta → CAD Y (depth) delta.
       const worldDelta = new THREE.Vector3(
         this.hitPoint.x - drag.startHit.x,
         0,
         this.hitPoint.z - drag.startHit.z,
       ).applyQuaternion(this.csgScene.quaternion.clone().invert());
       obj.position.x = snapMm(drag.startPosMm.x + Units.sceneToMm(worldDelta.x));
-      obj.position.z = snapMm(drag.startPosMm.z + Units.sceneToMm(worldDelta.z));
+      obj.position.y = snapMm(drag.startPosMm.y + Units.sceneToMm(worldDelta.z));  // Three.js Z → CAD Y
       changed = true;
-    } else if (drag.type === 'y') {
-      const dy = Units.sceneToMm(this.hitPoint.y - drag.startHit.y);
-      const minY = CSGObject.restingY(obj.type, obj.dims, obj.importedRestingYMm);
-      obj.position.y = Math.max(minY, Math.round(drag.startPosMm.y + dy / Y_SNAP_MM) * Y_SNAP_MM);
+    } else if (drag.type === 'z') {
+      // Three.js Y delta → CAD Z (vertical) delta.
+      const dz = Units.sceneToMm(this.hitPoint.y - drag.startHit.y);
+      const minZ = CSGObject.restingZ(obj.type, obj.dims, obj.importedRestingZMm);
+      obj.position.z = Math.max(minZ, Math.round(drag.startPosMm.z + dz / Z_SNAP_MM) * Z_SNAP_MM);
       changed = true;
     } else if (drag.type === 'resize') {
       changed = this.resizeHandles.continueDrag(ray, obj);
@@ -269,7 +274,7 @@ export class SelectionManager {
     }
   }
 
-  private beginYDrag(
+  private beginZDrag(
     ctrl: ControllerState,
     ray: THREE.Raycaster,
     obj: CSGObject,
@@ -277,21 +282,23 @@ export class SelectionManager {
   ): ActiveDrag | null {
     // Vertical billboard plane facing the camera through the object's world centre.
     const horizFwd = cameraForward.clone();
-    horizFwd.y = 0;
+    horizFwd.y = 0;  // zero Three.js Y to keep the forward direction horizontal
     if (horizFwd.lengthSq() < 0.001) horizFwd.set(0, 0, -1);
     horizFwd.normalize();
 
+    // Convert CSG (CAD) position to Three.js world position:
+    // Three.js Y = CAD Z (up), Three.js Z = CAD Y (depth).
     const objWorld = this.csgScene.localToWorld(new THREE.Vector3(
       Units.mmToScene(obj.position.x),
-      Units.mmToScene(obj.position.y),
-      Units.mmToScene(obj.position.z),
+      Units.mmToScene(obj.position.z),  // CAD Z → Three.js Y
+      Units.mmToScene(obj.position.y),  // CAD Y → Three.js Z
     ));
     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(horizFwd, objWorld);
 
     const startHit = new THREE.Vector3();
     if (!ray.ray.intersectPlane(plane, startHit)) return null;
 
-    return { ctrl, type: 'y', plane, startHit: startHit.clone(), startPosMm: obj.position.clone() };
+    return { ctrl, type: 'z', plane, startHit: startHit.clone(), startPosMm: obj.position.clone() };
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -321,7 +328,7 @@ export class SelectionManager {
     return this.csgScene.objects.find(o => o.brush === hits[0].object) ?? null;
   }
 
-  private buildGhost(type: PrimitiveType, op: CSGOperation, restingY: number): void {
+  private buildGhost(type: PrimitiveType, op: CSGOperation, restingZ: number): void {
     const tempObj = new CSGObject(type, op);
     const geo = tempObj.brush.geometry.clone();
     const mat = new THREE.MeshStandardMaterial({
@@ -331,7 +338,7 @@ export class SelectionManager {
       depthWrite: false,
     });
     this.ghost = new THREE.Mesh(geo, mat);
-    this.ghost.position.y = restingY;
+    this.ghost.position.y = restingZ;  // Three.js Y = resting height (scene units)
     this.ghost.visible = false;
     this.threeScene.add(this.ghost);
   }

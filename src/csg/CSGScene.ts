@@ -41,13 +41,13 @@ export class CSGScene extends THREE.Group {
   /** Add a mesh imported from an external file (e.g. STL). */
   addImportedObject(
     geometry: THREE.BufferGeometry,
-    restingYMm: number,
+    restingZMm: number,
     op: CSGOperation,
   ): CSGObject {
     const obj = new CSGObject('imported', op);
     obj.importedGeometry = geometry;
-    obj.importedRestingYMm = restingYMm;
-    obj.position.y = restingYMm;
+    obj.importedRestingZMm = restingZMm;
+    obj.position.z = restingZMm;
     obj.rebuildBrush();
     this.objects.push(obj);
     this.previewGroup.add(obj.brush);
@@ -157,7 +157,7 @@ export class CSGScene extends THREE.Group {
           data.id,
         );
         obj.importedGeometry = geometry;
-        obj.importedRestingYMm = data.importedRestingY ?? 0;
+        obj.importedRestingZMm = data.importedRestingZ ?? data.importedRestingY ?? 0;
       } else {
         obj = new CSGObject(
           data.type,

@@ -26,7 +26,7 @@ export class Exporter {
         if (obj.type === 'imported' && obj.importedGeometry) {
           const positions = obj.importedGeometry.attributes.position.array as Float32Array;
           serialized.geometryData = float32ToBase64(positions);
-          serialized.importedRestingY = obj.importedRestingYMm;
+          serialized.importedRestingZ = obj.importedRestingZMm;
         }
         return serialized;
       }),
