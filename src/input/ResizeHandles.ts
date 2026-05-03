@@ -3,9 +3,10 @@ import { CSGObject, Dimensions, PrimitiveType } from '../csg/CSGObject';
 import { Units } from '../units/Units';
 
 const COL = { x: 0xff4444, y: 0x44cc44, z: 0x4488ff };
-const COL_HOVER  = 0xffee00;
-const COL_ACTIVE = 0xff8800;
-const HANDLE_MM  = 7;
+const COL_HOVER      = 0xffee00;
+const COL_ACTIVE     = 0xff8800;
+const HANDLE_MM      = 12;
+const WIREFRAME_COLOR = 0xffffff;
 
 interface Cfg {
   /** Dimension key this handle controls. */
@@ -68,16 +69,19 @@ export interface DragState {
 }
 
 /**
- * Axis-coloured cubic handles placed at the face extremes of a selected object.
- * Red = X, Green = Y, Blue = Z.
+ * Flat square handles sitting on the faces of a wireframe bounding box,
+ * TinkerCAD-style. Red = X, Green = Y, Blue = Z.
  *
  * Attach to an object after selection; call refresh() whenever dims/position
- * changes; call detach() on deselection.
+ * changes; call unbind() on deselection.
  */
 export class ResizeHandles extends THREE.Group {
   private slots: HandleSlot[] = [];
   private hovered: HandleSlot | null = null;
   activeDrag: DragState | null = null;
+
+  private boxHelper: THREE.BoxHelper | null = null;
+  private handleGeo: THREE.PlaneGeometry | null = null;
 
   constructor() {
     super();
@@ -88,16 +92,28 @@ export class ResizeHandles extends THREE.Group {
 
   bindTo(obj: CSGObject): void {
     this.unbind();
-    const s = Units.mmToScene(HANDLE_MM);
-    const geo = new THREE.BoxGeometry(s, s, s);
 
+    const s = Units.mmToScene(HANDLE_MM);
+    this.handleGeo = new THREE.PlaneGeometry(s, s);
+
+    const zAxis = new THREE.Vector3(0, 0, 1);
     for (const cfg of CFGS[obj.type]) {
-      const mat = new THREE.MeshBasicMaterial({ color: cfg.color, depthTest: false });
-      const mesh = new THREE.Mesh(geo, mat);
+      const mat = new THREE.MeshBasicMaterial({
+        color: cfg.color,
+        side: THREE.DoubleSide,  // visible from any angle in AR/VR
+        depthTest: false,
+      });
+      const mesh = new THREE.Mesh(this.handleGeo, mat);
+      // Orient so the plane's normal faces outward along cfg.axis
+      mesh.quaternion.setFromUnitVectors(zAxis, cfg.axis);
       const slot: HandleSlot = { mesh, cfg };
       this.slots.push(slot);
       this.add(mesh);
     }
+
+    this.boxHelper = new THREE.BoxHelper(obj.brush, WIREFRAME_COLOR);
+    (this.boxHelper.material as THREE.LineBasicMaterial).depthTest = false;
+    this.add(this.boxHelper);
 
     this.refresh(obj);
     this.visible = true;
@@ -109,6 +125,18 @@ export class ResizeHandles extends THREE.Group {
       (s.mesh.material as THREE.Material).dispose();
     }
     this.slots = [];
+
+    if (this.handleGeo) {
+      this.handleGeo.dispose();
+      this.handleGeo = null;
+    }
+
+    if (this.boxHelper) {
+      this.remove(this.boxHelper);
+      this.boxHelper.dispose();
+      this.boxHelper = null;
+    }
+
     this.hovered = null;
     this.activeDrag = null;
     this.visible = false;
@@ -124,6 +152,8 @@ export class ResizeHandles extends THREE.Group {
       const offset = Units.mmToScene(halfMm) * slot.cfg.sign;
       slot.mesh.position.copy(center).addScaledVector(slot.cfg.axis, offset);
     }
+
+    this.boxHelper?.update();
   }
 
   // ── Hit testing & hover ──────────────────────────────────────────────────────
