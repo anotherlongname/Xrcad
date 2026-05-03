@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ControllerState } from './ControllerState';
 import { ResizeHandles } from './ResizeHandles';
+import { RotationHandles } from './RotationHandles';
 import { CSGObject, CSGOperation, PrimitiveType } from '../csg/CSGObject';
 import { CSGScene } from '../csg/CSGScene';
 import { ObjectInspector } from '../ui/ObjectInspector';
@@ -15,7 +16,7 @@ function snapMm(mm: number): number {
 }
 
 // CAD convention: XY is the horizontal plane, Z is up/down.
-type DragType = 'xy' | 'z' | 'resize';
+type DragType = 'xy' | 'z' | 'resize' | 'rotate';
 
 interface ActiveDrag {
   ctrl: ControllerState;
@@ -45,6 +46,7 @@ export class SelectionManager {
   private mode: Mode = { kind: 'idle' };
   private ghost: THREE.Mesh | null = null;
   private readonly resizeHandles: ResizeHandles;
+  private readonly rotationHandles: RotationHandles;
   private readonly rayL = new THREE.Raycaster();
   private readonly rayR = new THREE.Raycaster();
   private readonly tempMat = new THREE.Matrix4();
@@ -60,6 +62,8 @@ export class SelectionManager {
   ) {
     this.resizeHandles = new ResizeHandles();
     threeScene.add(this.resizeHandles);
+    this.rotationHandles = new RotationHandles();
+    threeScene.add(this.rotationHandles);
   }
 
   // ── Public API ───────────────────────────────────────────────────────────────
@@ -173,6 +177,7 @@ export class SelectionManager {
       const buttonStillDown = type === 'z' ? ctrl.gripDown : ctrl.triggerDown;
       if (!buttonStillDown) {
         if (type === 'resize') this.resizeHandles.endDrag();
+        if (type === 'rotate') this.rotationHandles.endDrag();
         state.drag = null;
       }
     }
@@ -189,12 +194,14 @@ export class SelectionManager {
       const otherCtrl = ctrl === this.left ? this.right : this.left;
 
       // Panel hit-testing
-      const inspHit   = this.inspector.visible ? this.inspector.hitTest(ray) : null;
-      const menuHit   = this.menu.visible       ? this.menu.hitTest(ray)     : null;
+      const inspHit    = this.inspector.visible ? this.inspector.hitTest(ray) : null;
+      const menuHit    = this.menu.visible       ? this.menu.hitTest(ray)     : null;
       const handleSlot = this.resizeHandles.hitTest(ray);
+      const ringSlot   = this.rotationHandles.hitTest(ray);
       this.inspector.onHover(inspHit);
       this.menu.onHover(menuHit);
       this.resizeHandles.onHover(handleSlot);
+      this.rotationHandles.onHover(ringSlot);
 
       // ── Grip → Z-axis drag (only when the other grip is NOT down) ──────────
       if (ctrl.gripJustDown && !otherCtrl.gripDown) {
@@ -208,12 +215,25 @@ export class SelectionManager {
       if (inspHit) { this.inspector.onPress(inspHit); return; }
       if (menuHit) { this.menu.onPress(menuHit);     return; }
 
+      // ── Trigger on rotation ring ──────────────────────────────────────────
+      if (ringSlot) {
+        if (this.rotationHandles.beginDrag(ringSlot, ray, obj)) {
+          state.drag = {
+            ctrl, type: 'rotate',
+            plane: new THREE.Plane(),       // unused — RotationHandles owns its plane
+            startHit: new THREE.Vector3(),
+            startPosMm: obj.position.clone(),
+          };
+        }
+        return;
+      }
+
       // ── Trigger on resize handle ──────────────────────────────────────────
       if (handleSlot) {
         if (this.resizeHandles.beginDrag(handleSlot, ray, cameraForward, obj)) {
           state.drag = {
             ctrl, type: 'resize',
-            plane: new THREE.Plane(), // unused — ResizeHandles owns its plane
+            plane: new THREE.Plane(),       // unused — ResizeHandles owns its plane
             startHit: new THREE.Vector3(),
             startPosMm: obj.position.clone(),
           };
@@ -264,12 +284,15 @@ export class SelectionManager {
       changed = true;
     } else if (drag.type === 'resize') {
       changed = this.resizeHandles.continueDrag(ray, obj);
+    } else if (drag.type === 'rotate') {
+      changed = this.rotationHandles.continueDrag(ray, obj);
     }
 
     if (changed) {
       obj.rebuildBrush();
       this.csgScene.compile();
       this.resizeHandles.refresh(obj);
+      this.rotationHandles.refresh(obj);
       this.inspector.dirty();
     }
   }
@@ -313,6 +336,7 @@ export class SelectionManager {
     this.inspector.inspect(obj);
     this.csgScene.setEditMode(true);
     this.resizeHandles.bindTo(obj);
+    this.rotationHandles.bindTo(obj);
   }
 
   private deselectObject(): void {
@@ -320,6 +344,7 @@ export class SelectionManager {
     this.inspector.inspect(null);
     this.csgScene.setEditMode(false);
     this.resizeHandles.unbind();
+    this.rotationHandles.unbind();
   }
 
   private raycastObjects(ray: THREE.Raycaster): CSGObject | null {

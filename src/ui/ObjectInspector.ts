@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { VRPanel } from './VRPanel';
 import { CSGObject, Dimensions } from '../csg/CSGObject';
 import { CSGScene } from '../csg/CSGScene';
@@ -59,6 +60,14 @@ export class ObjectInspector extends VRPanel {
 
   private posRowY(i: number): number {
     return this.rowY(this.dimEntries().length) + PAD + 22 + i * STEP;
+  }
+
+  private rotHeaderY(): number {
+    return this.posRowY(3) + PAD;
+  }
+
+  private rotRowY(i: number): number {
+    return this.rotHeaderY() + 22 + i * STEP;
   }
 
   private rebuildButtons(): void {
@@ -182,6 +191,47 @@ export class ObjectInspector extends VRPanel {
         },
       });
     });
+
+    // ── Rotation rows ──────────────────────────────────────────────────────
+    // Three.js X/Y/Z euler angles displayed in degrees.
+    const rotAxes: ['x' | 'y' | 'z'][] = [['x'], ['y'], ['z']];
+    const ROT_STEP = 15 * Math.PI / 180;
+    rotAxes.forEach(([axis], i) => {
+      const y = this.rotRowY(i);
+      const getDeg = () => Math.round(THREE.MathUtils.radToDeg(obj.rotation[axis]));
+
+      this.buttons.push({
+        id: `r_${axis}_minus`,
+        label: '−',
+        x: MINUS_X, y, w: MINUS_W, h: BH,
+        action: () => {
+          obj.rotation[axis] = Math.round((obj.rotation[axis] - ROT_STEP) / ROT_STEP) * ROT_STEP;
+          this.afterRotChange(obj);
+        },
+      });
+
+      this.buttons.push({
+        id: `r_${axis}_val`,
+        label: `${getDeg()}°`,
+        x: VAL_X, y, w: VAL_W, h: BH,
+        action: () => {
+          this.numInput.open(getDeg(), `rot ${axis.toUpperCase()} (deg)`, (v) => {
+            obj.rotation[axis] = THREE.MathUtils.degToRad(v);
+            this.afterRotChange(obj);
+          });
+        },
+      });
+
+      this.buttons.push({
+        id: `r_${axis}_plus`,
+        label: '+',
+        x: PLUS_X, y, w: PLUS_W, h: BH,
+        action: () => {
+          obj.rotation[axis] = Math.round((obj.rotation[axis] + ROT_STEP) / ROT_STEP) * ROT_STEP;
+          this.afterRotChange(obj);
+        },
+      });
+    });
   }
 
   private afterDimChange(obj: CSGObject): void {
@@ -192,6 +242,13 @@ export class ObjectInspector extends VRPanel {
   }
 
   private afterPosChange(obj: CSGObject): void {
+    obj.rebuildBrush();
+    this.scene.compile();
+    this.rebuildButtons();
+    this.dirty();
+  }
+
+  private afterRotChange(obj: CSGObject): void {
     obj.rebuildBrush();
     this.scene.compile();
     this.rebuildButtons();
@@ -227,6 +284,14 @@ export class ObjectInspector extends VRPanel {
       const y = this.posRowY(i);
       this.text(axis.toUpperCase(), PAD, y + 9, 16, '#94a3b8');
       this.text('mm', PLUS_X + PLUS_W + 4, y + 9, 14, '#475569');
+    });
+
+    // Rotation section header
+    this.text('rotation', PAD, this.rotHeaderY(), 14, '#64748b');
+
+    (['x', 'y', 'z'] as const).forEach((axis, i) => {
+      const y = this.rotRowY(i);
+      this.text(axis.toUpperCase(), PAD, y + 9, 16, '#94a3b8');
     });
   }
 }
