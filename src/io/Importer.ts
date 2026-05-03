@@ -8,7 +8,8 @@ import type { XrcadFile } from './FileFormat';
 const STAGED_STL_KEY = 'xrcad_staged_stl';
 
 function float32ToBase64(arr: Float32Array): string {
-  const bytes = new Uint8Array(arr.buffer);
+  // Use byteOffset/byteLength in case arr is a view into a larger buffer
+  const bytes = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
   let s = '';
   for (const b of bytes) s += String.fromCharCode(b);
   return btoa(s);
@@ -21,14 +22,31 @@ function base64ToFloat32(b64: string): Float32Array {
   return new Float32Array(bytes.buffer);
 }
 
+/**
+ * Centre the geometry, then normalise so the longest axis equals 100 mm if the
+ * raw coordinates fall outside the plausible mm range (< 1 mm or > 500 mm).
+ * This handles STLs exported in metres or inches without breaking normal mm files.
+ */
 function processSTLBuffer(buffer: ArrayBuffer): { geometryData: string; halfH: number } {
   const geometry = new STLLoader().parse(buffer);
   geometry.computeBoundingBox();
   const box = geometry.boundingBox!;
+
   const center = new THREE.Vector3();
   box.getCenter(center);
   geometry.translate(-center.x, -center.y, -center.z);
-  const halfH = (box.max.y - box.min.y) / 2;
+
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const maxDim = Math.max(size.x, size.y, size.z);
+
+  if (maxDim > 0 && (maxDim < 1 || maxDim > 500)) {
+    const s = 100 / maxDim;
+    geometry.scale(s, s, s);
+    size.multiplyScalar(s);
+  }
+
+  const halfH = size.y / 2;
   const positions = geometry.attributes.position.array as Float32Array;
   return { geometryData: float32ToBase64(positions), halfH };
 }
@@ -76,7 +94,6 @@ export class Importer {
    * Process an STL file and save it to localStorage so it can be loaded
    * inside an active WebXR session (where file pickers are unavailable).
    * Call this from a 2D browser context before entering VR.
-   * `onReady` is called with the file name on success.
    */
   static stageSTLForVR(onReady: (name: string) => void): void {
     const input = document.createElement('input');
@@ -103,20 +120,57 @@ export class Importer {
   }
 
   /**
+   * Show the dom-overlay import panel so the user can pick a file while in VR.
+   * The overlay's file input provides a proper user-gesture context on Meta Quest,
+   * allowing the native file picker to open reliably on every press.
+   *
+   * `onImported` fires after the object is added but before compile so the caller
+   * can reposition it first.
+   */
+  static importSTLViaOverlay(
+    panelEl: HTMLElement,
+    inputEl: HTMLInputElement,
+    scene: CSGScene,
+    op: CSGOperation,
+    onImported: (obj: CSGObject) => void,
+  ): void {
+    inputEl.value = ''; // reset so 'change' fires even if same file is re-selected
+    inputEl.onchange = async () => {
+      panelEl.style.display = 'none';
+      const file = inputEl.files?.[0];
+      if (!file) return;
+      try {
+        const buffer = await file.arrayBuffer();
+        const { geometryData, halfH } = processSTLBuffer(buffer);
+        const geometry = geometryFromStaged(geometryData);
+        const obj = scene.addImportedObject(geometry, halfH, op);
+        onImported(obj);
+      } catch (e) {
+        console.error('[XrCAD] STL overlay import failed:', e);
+      }
+    };
+    panelEl.style.display = 'block';
+  }
+
+  /**
    * Import an STL mesh into the scene.
    *
-   * In VR (or when a staged file is available) this loads from the
-   * localStorage entry written by `stageSTLForVR`. Otherwise it opens a
-   * native file picker (works on desktop / 2D browser).
+   * Priority order:
+   *  1. Staged file in localStorage  — instant, always works in XR
+   *  2. dom-overlay panel            — reliable in-VR file picker (Meta Quest)
+   *  3. Direct <input> click         — works on desktop, may fail in active XR
    *
-   * `onImported` fires with the new CSGObject once it has been added.
+   * `onImported` fires after the object is added but BEFORE compile so the caller
+   * can reposition the object before compiling.
    */
   static importSTL(
     scene: CSGScene,
     op: CSGOperation,
     onImported: (obj: CSGObject) => void,
+    overlayPanel?: HTMLElement,
+    overlayInput?: HTMLInputElement,
   ): void {
-    // Prefer staged file — the only path that works inside a WebXR session.
+    // 1. Pre-staged file
     const raw = localStorage.getItem(STAGED_STL_KEY);
     if (raw) {
       try {
@@ -124,7 +178,6 @@ export class Importer {
         const { geometryData, halfH } = JSON.parse(raw) as { geometryData: string; halfH: number };
         const geometry = geometryFromStaged(geometryData);
         const obj = scene.addImportedObject(geometry, halfH, op);
-        scene.compile();
         onImported(obj);
       } catch (e) {
         console.error('[XrCAD] Failed to load staged STL:', e);
@@ -132,7 +185,13 @@ export class Importer {
       return;
     }
 
-    // Fall back to file picker (works on desktop, silently fails in active XR session).
+    // 2. dom-overlay (reliable on Meta Quest)
+    if (overlayPanel && overlayInput) {
+      Importer.importSTLViaOverlay(overlayPanel, overlayInput, scene, op, onImported);
+      return;
+    }
+
+    // 3. Direct file picker fallback (desktop; silently fails in active XR session)
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.stl';
@@ -144,7 +203,6 @@ export class Importer {
         const { geometryData, halfH } = processSTLBuffer(buffer);
         const geometry = geometryFromStaged(geometryData);
         const obj = scene.addImportedObject(geometry, halfH, op);
-        scene.compile();
         onImported(obj);
       } catch (e) {
         console.error('[XrCAD] STL import failed:', e);
