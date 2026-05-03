@@ -91,6 +91,7 @@ export class SceneManager {
           this.dismissMenu();
         });
       },
+      () => { void this.renderer.xr.getSession()?.end(); },
     );
     this.scene.add(this.menu);
 
