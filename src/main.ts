@@ -30,17 +30,17 @@ vrBtn.disabled = true;
 let activeSession: XRSession | null = null;
 
 async function startXR(): Promise<void> {
-  const session = await (navigator.xr as XRSystem).requestSession('immersive-vr', {
+  const session = await (navigator.xr as XRSystem).requestSession('immersive-ar', {
     optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking', 'dom-overlay'],
     domOverlay: { root: overlayRoot },
   } as XRSessionInit);
   activeSession = session;
   session.addEventListener('end', () => {
     activeSession = null;
-    vrBtn.textContent = 'ENTER VR';
+    vrBtn.textContent = 'ENTER AR';
   });
   await manager.renderer.xr.setSession(session);
-  vrBtn.textContent = 'EXIT VR';
+  vrBtn.textContent = 'EXIT AR';
 }
 
 vrBtn.addEventListener('click', () => {
@@ -49,12 +49,12 @@ vrBtn.addEventListener('click', () => {
 });
 
 if (navigator.xr) {
-  (navigator.xr as XRSystem).isSessionSupported('immersive-vr')
+  (navigator.xr as XRSystem).isSessionSupported('immersive-ar')
     .then(supported => {
-      vrBtn.textContent = supported ? 'ENTER VR' : 'VR NOT SUPPORTED';
+      vrBtn.textContent = supported ? 'ENTER AR' : 'AR NOT SUPPORTED';
       vrBtn.disabled    = !supported;
     })
-    .catch(() => { vrBtn.textContent = 'VR NOT SUPPORTED'; });
+    .catch(() => { vrBtn.textContent = 'AR NOT SUPPORTED'; });
 } else {
   vrBtn.textContent = 'WEBXR NOT FOUND';
 }
