@@ -73,11 +73,18 @@ export class CSGScene extends THREE.Group {
     const adds = this.objects.filter(o => o.operation === 'add');
     if (adds.length === 0) return;
 
-    adds.forEach(o => o.brush.updateMatrixWorld(true));
+    // Temporarily override each brush's matrixWorld with its local matrix so the
+    // CSG result lives in csgScene-local space. This prevents the resultMesh from
+    // being double-transformed when the workspace has been moved/rotated.
+    // (previewGroup has identity transform, so brush.matrix === local-to-csgScene.)
+    const savedMatrices = this.objects.map(o => o.brush.matrixWorld.clone());
+    this.objects.forEach(o => {
+      o.brush.updateMatrix();
+      o.brush.matrixWorld.copy(o.brush.matrix);
+    });
 
     let current: Brush;
     if (adds.length === 1) {
-      // Single add — clone geometry into world space, no evaluation needed
       const src = adds[0].brush;
       const geo = src.geometry.clone().applyMatrix4(src.matrixWorld);
       current = new Brush(geo);
@@ -86,7 +93,6 @@ export class CSGScene extends THREE.Group {
       current = this.evaluator.evaluate(adds[0].brush, adds[1].brush, ADDITION);
       current.updateMatrixWorld(true);
       for (let i = 2; i < adds.length; i++) {
-        adds[i].brush.updateMatrixWorld(true);
         current = this.evaluator.evaluate(current, adds[i].brush, ADDITION);
         current.updateMatrixWorld(true);
       }
@@ -94,10 +100,12 @@ export class CSGScene extends THREE.Group {
 
     const subs = this.objects.filter(o => o.operation === 'subtract');
     for (const obj of subs) {
-      obj.brush.updateMatrixWorld(true);
       current = this.evaluator.evaluate(current, obj.brush, SUBTRACTION);
       current.updateMatrixWorld(true);
     }
+
+    // Restore brush matrixWorld values for same-frame operations (e.g. resize handles).
+    this.objects.forEach((o, i) => o.brush.matrixWorld.copy(savedMatrices[i]));
 
     current.material = COMPILED_MAT;
     current.castShadow = true;
