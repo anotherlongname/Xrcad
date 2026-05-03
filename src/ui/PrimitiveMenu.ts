@@ -2,8 +2,6 @@ import { VRPanel } from './VRPanel';
 import { CSGScene } from '../csg/CSGScene';
 import { CSGOperation, PrimitiveType } from '../csg/CSGObject';
 import { Units } from '../units/Units';
-import { Exporter } from '../io/Exporter';
-import { Importer } from '../io/Importer';
 
 const PAD  = 10;
 const BW   = 148;
@@ -21,10 +19,9 @@ export class PrimitiveMenu extends VRPanel {
     private readonly onShapeSelected: (type: PrimitiveType, op: CSGOperation) => void,
     private readonly onModeToggle: () => void,
     private readonly onGripModeChange: (mode: 'scale' | 'transform') => void,
-    private readonly onImportSTL: (op: CSGOperation) => void,
     private readonly onExitXR: () => void,
   ) {
-    super(0.30, 0.44, 512);
+    super(0.30, 0.24, 512);
 
     const row = (r: number) => PAD + 44 + r * (BH + PAD);
 
@@ -56,33 +53,16 @@ export class PrimitiveMenu extends VRPanel {
         action: () => { this.nextOp = 'subtract'; this.dirty(); } },
     );
 
-    // ── Save / Load ─────────────────────────────────────────────────────────
-    const ioRow = row(4);
-    this.buttons.push(
-      { id: 'save', label: 'SAVE', x: PAD,  y: ioRow, w: BW, h: BH,
-        action: () => Exporter.save(scene) },
-      { id: 'load', label: 'LOAD', x: COL2, y: ioRow, w: BW, h: BH,
-        action: () => Importer.loadAutosave(scene) },
-    );
-
-    // ── Import STL ──────────────────────────────────────────────────────────
-    this.buttons.push({
-      id: 'stl_import',
-      label: 'IMPORT STL',
-      x: PAD, y: row(5), w: BW * 2 + PAD, h: BH,
-      action: () => onImportSTL(this.nextOp),
-    });
-
     // ── AR / VR toggle ──────────────────────────────────────────────────────
     this.buttons.push({
       id: 'mode_toggle',
       label: 'AR / VR',
-      x: COL2, y: row(6), w: BW, h: BH,
+      x: COL2, y: row(4), w: BW, h: BH,
       action: () => onModeToggle(),
     });
 
     // ── Grip mode toggle ─────────────────────────────────────────────────────
-    const gripRow = row(7);
+    const gripRow = row(5);
     this.buttons.push(
       { id: 'grip_scale', label: 'SCALE', x: PAD,  y: gripRow, w: BW, h: BH,
         action: () => { this.gripMode = 'scale';     this.dirty(); onGripModeChange('scale'); } },
@@ -94,7 +74,7 @@ export class PrimitiveMenu extends VRPanel {
     this.buttons.push({
       id: 'exit_xr',
       label: 'EXIT VR',
-      x: PAD, y: row(8), w: BW * 2 + PAD, h: BH,
+      x: PAD, y: row(6), w: BW * 2 + PAD, h: BH,
       action: () => onExitXR(),
     });
 
@@ -147,7 +127,7 @@ export class PrimitiveMenu extends VRPanel {
     }
 
     // ── Scale info (left of the mode toggle button) ─────────────────────────
-    const scaleRow = PAD + 44 + 6 * (BH + PAD); // same y as row(6)
+    const scaleRow = PAD + 44 + 4 * (BH + PAD); // same y as row(4)
     const scale    = Units.workspaceScale;
     const scaleStr = Number.isInteger(scale) ? `${scale}×` : `${scale.toFixed(1)}×`;
     this.text('Scale', PAD, scaleRow + 4, 14, '#64748b');
@@ -158,7 +138,7 @@ export class PrimitiveMenu extends VRPanel {
     this.text(modeLabel, PAD, scaleRow + 44, 14, modeColor);
 
     // Grip section label
-    const gripLabelY = PAD + 44 + 7 * (BH + PAD) - 16;
+    const gripLabelY = PAD + 44 + 5 * (BH + PAD) - 16;
     this.text('both grips', PAD, gripLabelY, 12, '#64748b');
   }
 }

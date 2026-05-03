@@ -11,7 +11,6 @@ import { NumberInputManager } from '../ui/NumberInputManager';
 import { Exporter } from '../io/Exporter';
 import { Importer } from '../io/Importer';
 import { Units } from '../units/Units';
-import { CSGObject } from '../csg/CSGObject';
 
 export class SceneManager {
   readonly renderer: THREE.WebGLRenderer;
@@ -31,10 +30,6 @@ export class SceneManager {
 
   private xrMode: 'immersive-vr' | 'immersive-ar' | null = null;
   private lastScale = -1;
-
-  private overlayRoot:  HTMLElement | null = null;
-  private overlayPanel: HTMLElement | null = null;
-  private overlayInput: HTMLInputElement | null = null;
 
   // Reusable vectors for inspector/menu positioning
   private readonly _camPos = new THREE.Vector3();
@@ -90,14 +85,6 @@ export class SceneManager {
       (type, op) => { this.selector.startPlacing(type, op); },
       () => { void this.switchXRMode(); },
       () => { this.scaler.toggleMode(); },
-      (op) => {
-        Importer.importSTL(this.csgScene, op, (obj) => {
-          this.placeImportedObjectInFront(obj);
-          this.csgScene.compile();
-          this.selector.forceSelect(obj);
-          this.dismissMenu();
-        }, this.overlayPanel ?? undefined, this.overlayInput ?? undefined);
-      },
       () => { void this.renderer.xr.getSession()?.end(); },
     );
     this.scene.add(this.menu);
@@ -158,10 +145,19 @@ export class SceneManager {
     return line;
   }
 
-  setOverlayElements(root: HTMLElement, panel: HTMLElement, input: HTMLInputElement): void {
-    this.overlayRoot  = root;
-    this.overlayPanel = panel;
-    this.overlayInput = input;
+  save2D(): void {
+    Exporter.save(this.csgScene);
+  }
+
+  load2D(): void {
+    Importer.openFilePicker(this.csgScene);
+  }
+
+  importSTL2D(): void {
+    Importer.importSTL2D(this.csgScene, 'add', (obj) => {
+      this.csgScene.compile();
+      this.selector.forceSelect(obj);
+    });
   }
 
   start(): void {
@@ -245,36 +241,13 @@ export class SceneManager {
     }
   }
 
-  /** Place an imported object 35 cm in front of the user's current gaze direction. */
-  private placeImportedObjectInFront(obj: CSGObject): void {
-    const xrCam = this.renderer.xr.getCamera();
-    const fwd = new THREE.Vector3(0, 0, -1)
-      .transformDirection(xrCam.matrixWorld)
-      .setY(0);  // zero Three.js Y to stay on the horizontal plane
-    if (fwd.lengthSq() < 0.001) fwd.set(0, 0, -1);
-    fwd.normalize();
-
-    const camWorld = new THREE.Vector3().setFromMatrixPosition(xrCam.matrixWorld);
-    const targetWorld = camWorld.clone().addScaledVector(fwd, 0.35);
-
-    // Transform into csgScene local space (accounts for workspace move/rotate).
-    // Three.js local: X = CAD X; Z = CAD Y (depth).  CAD Z (up) is left unchanged.
-    const targetLocal = this.csgScene.worldToLocal(targetWorld);
-    const mmPerUnit = 1 / Units.mmToScene(1);
-    obj.position.x = targetLocal.x * mmPerUnit;   // Three.js X → CAD X
-    obj.position.y = targetLocal.z * mmPerUnit;   // Three.js Z (depth) → CAD Y
-    // obj.position.z stays as restingZMm set by addImportedObject
-    obj.rebuildBrush();
-  }
-
   private async switchXRMode(): Promise<void> {
     const current = this.renderer.xr.getSession();
     if (current) await current.end();
     const target = this.xrMode === 'immersive-ar' ? 'immersive-vr' : 'immersive-ar';
     try {
       const opts = {
-        optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking', 'dom-overlay'],
-        ...(this.overlayRoot ? { domOverlay: { root: this.overlayRoot } } : {}),
+        optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'],
       } as XRSessionInit;
       const session = await (navigator.xr as XRSystem).requestSession(target, opts);
       await this.renderer.xr.setSession(session);
