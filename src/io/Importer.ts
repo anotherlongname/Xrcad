@@ -5,29 +5,12 @@ import { CSGObject, CSGOperation } from '../csg/CSGObject';
 import { Units } from '../units/Units';
 import type { XrcadFile } from './FileFormat';
 
-const STAGED_STL_KEY = 'xrcad_staged_stl';
-
-function float32ToBase64(arr: Float32Array): string {
-  // Use byteOffset/byteLength in case arr is a view into a larger buffer
-  const bytes = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
-  let s = '';
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s);
-}
-
-function base64ToFloat32(b64: string): Float32Array {
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new Float32Array(bytes.buffer);
-}
-
 /**
  * Centre the geometry, then normalise so the longest axis equals 100 mm if the
  * raw coordinates fall outside the plausible mm range (< 1 mm or > 500 mm).
  * This handles STLs exported in metres or inches without breaking normal mm files.
  */
-function processSTLBuffer(buffer: ArrayBuffer): { geometryData: string; restingZ: number } {
+function processSTLBuffer(buffer: ArrayBuffer): { geometry: THREE.BufferGeometry; restingZ: number } {
   const geometry = new STLLoader().parse(buffer);
   geometry.computeBoundingBox();
   const box = geometry.boundingBox!;
@@ -46,23 +29,14 @@ function processSTLBuffer(buffer: ArrayBuffer): { geometryData: string; restingZ
     size.multiplyScalar(s);
   }
 
-  // Use the geometry's Y extent (Three.js Y = up) as the resting offset so the
-  // object's bottom face lands on the Z=0 CAD floor (= Three.js Y=0).
+  geometry.computeVertexNormals();
+  // Three.js Y extent → resting height in mm so the object sits on the CAD floor (Z=0)
   const restingZ = size.y / 2;
-  const positions = geometry.attributes.position.array as Float32Array;
-  return { geometryData: float32ToBase64(positions), restingZ };
-}
-
-function geometryFromStaged(geometryData: string): THREE.BufferGeometry {
-  const positions = base64ToFloat32(geometryData);
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geo.computeVertexNormals();
-  return geo;
+  return { geometry, restingZ };
 }
 
 export class Importer {
-  /** Load from localStorage autosave — works in VR without a file picker. */
+  /** Load from localStorage autosave. */
   static loadAutosave(scene: CSGScene): boolean {
     const raw = localStorage.getItem('xrcad_autosave');
     if (!raw) return false;
@@ -74,7 +48,7 @@ export class Importer {
     }
   }
 
-  /** Open a file picker — works on desktop / 2D browser, not in active XR session. */
+  /** Open a .xrcad file picker (2D browser context only). */
   static openFilePicker(scene: CSGScene): void {
     const input = document.createElement('input');
     input.type = 'file';
@@ -92,12 +66,12 @@ export class Importer {
     input.click();
   }
 
-  /**
-   * Process an STL file and save it to localStorage so it can be loaded
-   * inside an active WebXR session (where file pickers are unavailable).
-   * Call this from a 2D browser context before entering VR.
-   */
-  static stageSTLForVR(onReady: (name: string) => void): void {
+  /** Open an STL file picker (2D browser context only). */
+  static importSTL2D(
+    scene: CSGScene,
+    op: CSGOperation,
+    onImported: (obj: CSGObject) => void,
+  ): void {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.stl';
@@ -106,106 +80,7 @@ export class Importer {
       if (!file) return;
       try {
         const buffer = await file.arrayBuffer();
-        const staged = processSTLBuffer(buffer);
-        localStorage.setItem(STAGED_STL_KEY, JSON.stringify({ ...staged, name: file.name }));
-        onReady(file.name);
-      } catch (e) {
-        console.error('[XrCAD] STL staging failed:', e);
-      }
-    };
-    input.click();
-  }
-
-  /** True if an STL has been staged and is waiting to be imported. */
-  static hasStagedSTL(): boolean {
-    return localStorage.getItem(STAGED_STL_KEY) !== null;
-  }
-
-  /**
-   * Show the dom-overlay import panel so the user can pick a file while in VR.
-   * The overlay's file input provides a proper user-gesture context on Meta Quest,
-   * allowing the native file picker to open reliably on every press.
-   *
-   * `onImported` fires after the object is added but before compile so the caller
-   * can reposition it first.
-   */
-  static importSTLViaOverlay(
-    panelEl: HTMLElement,
-    inputEl: HTMLInputElement,
-    scene: CSGScene,
-    op: CSGOperation,
-    onImported: (obj: CSGObject) => void,
-  ): void {
-    inputEl.value = ''; // reset so 'change' fires even if same file is re-selected
-    inputEl.onchange = async () => {
-      panelEl.style.display = 'none';
-      const file = inputEl.files?.[0];
-      if (!file) return;
-      try {
-        const buffer = await file.arrayBuffer();
-        const { geometryData, restingZ } = processSTLBuffer(buffer);
-        const geometry = geometryFromStaged(geometryData);
-        const obj = scene.addImportedObject(geometry, restingZ, op);
-        onImported(obj);
-      } catch (e) {
-        console.error('[XrCAD] STL overlay import failed:', e);
-      }
-    };
-    panelEl.style.display = 'block';
-  }
-
-  /**
-   * Import an STL mesh into the scene.
-   *
-   * Priority order:
-   *  1. Staged file in localStorage  — instant, always works in XR
-   *  2. dom-overlay panel            — reliable in-VR file picker (Meta Quest)
-   *  3. Direct <input> click         — works on desktop, may fail in active XR
-   *
-   * `onImported` fires after the object is added but BEFORE compile so the caller
-   * can reposition the object before compiling.
-   */
-  static importSTL(
-    scene: CSGScene,
-    op: CSGOperation,
-    onImported: (obj: CSGObject) => void,
-    overlayPanel?: HTMLElement,
-    overlayInput?: HTMLInputElement,
-  ): void {
-    // 1. Pre-staged file
-    const raw = localStorage.getItem(STAGED_STL_KEY);
-    if (raw) {
-      try {
-        localStorage.removeItem(STAGED_STL_KEY);
-        const parsed = JSON.parse(raw) as { geometryData: string; restingZ?: number; halfH?: number };
-        const { geometryData, restingZ: rz, halfH } = parsed;
-        const restingZ = rz ?? halfH ?? 0;
-        const geometry = geometryFromStaged(geometryData);
-        const obj = scene.addImportedObject(geometry, restingZ, op);
-        onImported(obj);
-      } catch (e) {
-        console.error('[XrCAD] Failed to load staged STL:', e);
-      }
-      return;
-    }
-
-    // 2. dom-overlay (reliable on Meta Quest)
-    if (overlayPanel && overlayInput) {
-      Importer.importSTLViaOverlay(overlayPanel, overlayInput, scene, op, onImported);
-      return;
-    }
-
-    // 3. Direct file picker fallback (desktop; silently fails in active XR session)
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.stl';
-    input.onchange = async () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      try {
-        const buffer = await file.arrayBuffer();
-        const { geometryData, restingZ } = processSTLBuffer(buffer);
-        const geometry = geometryFromStaged(geometryData);
+        const { geometry, restingZ } = processSTLBuffer(buffer);
         const obj = scene.addImportedObject(geometry, restingZ, op);
         onImported(obj);
       } catch (e) {
