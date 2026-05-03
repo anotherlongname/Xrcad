@@ -63,14 +63,17 @@ export class SceneManager {
     this.scene.background = new THREE.Color(0x0a0f1a);
 
     this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.001, 100);
-    this.camera.position.set(0, 1.6, 0.6);
+    this.camera.position.set(0, 1.6, 0);
+    this.camera.lookAt(0, 1.3, -0.7);
 
     this.setupLighting();
 
     this.grid = new WorkspaceGrid();
+    this.grid.position.set(0, 1.3, -0.7);
     this.scene.add(this.grid);
 
     this.csgScene = new CSGScene();
+    this.csgScene.position.set(0, 1.3, -0.7);
     this.scene.add(this.csgScene);
 
     // ── UI panels ─────────────────────────────────────────────────────────────
