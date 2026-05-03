@@ -15,10 +15,39 @@
         transform: translateX(-50%);
         z-index: 10;
       }
+      #stl-prep {
+        position: fixed;
+        bottom: 72px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-family: monospace;
+        font-size: 13px;
+      }
+      #stl-prep-btn {
+        background: #0f172a;
+        color: #e0e8ff;
+        border: 1px solid #1e3a6a;
+        padding: 7px 14px;
+        cursor: pointer;
+        font-family: monospace;
+        font-size: 13px;
+        white-space: nowrap;
+      }
+      #stl-prep-btn:hover { background: #1e2d5a; border-color: #3b5bdb; }
+      #stl-prep-status { color: #64748b; }
+      #stl-prep-status.ready { color: #4ade80; }
     </style>
   </head>
   <body>
     <div id="vr-button-container"></div>
+    <div id="stl-prep">
+      <button id="stl-prep-btn">Prepare STL for VR</button>
+      <span id="stl-prep-status">Select an STL before entering VR</span>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
