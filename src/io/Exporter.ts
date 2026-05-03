@@ -2,19 +2,34 @@ import { CSGScene } from '../csg/CSGScene';
 import { Units } from '../units/Units';
 import type { XrcadFile, SerializedObject } from './FileFormat';
 
+function float32ToBase64(arr: Float32Array): string {
+  const bytes = new Uint8Array(arr.buffer);
+  let binary = '';
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
+
 export class Exporter {
   static serialize(scene: CSGScene): XrcadFile {
     return {
       version: 1,
       workspaceScale: Units.workspaceScale,
-      objects: scene.objects.map(obj => ({
-        id: obj.id,
-        type: obj.type,
-        operation: obj.operation,
-        dims: { ...obj.dims },
-        position: { x: obj.position.x, y: obj.position.y, z: obj.position.z },
-        rotation: { x: obj.rotation.x, y: obj.rotation.y, z: obj.rotation.z },
-      } satisfies SerializedObject)),
+      objects: scene.objects.map(obj => {
+        const serialized: SerializedObject = {
+          id: obj.id,
+          type: obj.type,
+          operation: obj.operation,
+          dims: { ...obj.dims },
+          position: { x: obj.position.x, y: obj.position.y, z: obj.position.z },
+          rotation: { x: obj.rotation.x, y: obj.rotation.y, z: obj.rotation.z },
+        };
+        if (obj.type === 'imported' && obj.importedGeometry) {
+          const positions = obj.importedGeometry.attributes.position.array as Float32Array;
+          serialized.geometryData = float32ToBase64(positions);
+          serialized.importedRestingY = obj.importedRestingYMm;
+        }
+        return serialized;
+      }),
     };
   }
 

@@ -9,6 +9,13 @@ const COMPILED_MAT = new THREE.MeshStandardMaterial({
   metalness: 0.15,
 });
 
+function base64ToFloat32(b64: string): Float32Array {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Float32Array(bytes.buffer);
+}
+
 export class CSGScene extends THREE.Group {
   objects: CSGObject[] = [];
   private evaluator = new Evaluator();
@@ -28,6 +35,22 @@ export class CSGScene extends THREE.Group {
     this.objects.push(obj);
     this.previewGroup.add(obj.brush);
     this.compile();
+    return obj;
+  }
+
+  /** Add a mesh imported from an external file (e.g. STL). */
+  addImportedObject(
+    geometry: THREE.BufferGeometry,
+    restingYMm: number,
+    op: CSGOperation,
+  ): CSGObject {
+    const obj = new CSGObject('imported', op);
+    obj.importedGeometry = geometry;
+    obj.importedRestingYMm = restingYMm;
+    obj.position.y = restingYMm;
+    obj.rebuildBrush();
+    this.objects.push(obj);
+    this.previewGroup.add(obj.brush);
     return obj;
   }
 
@@ -113,13 +136,30 @@ export class CSGScene extends THREE.Group {
     this.previewGroup.visible = false;
 
     for (const data of file.objects) {
-      const obj = new CSGObject(
-        data.type,
-        data.operation,
-        data.dims,
-        new THREE.Vector3(data.position.x, data.position.y, data.position.z),
-        data.id,
-      );
+      let obj: CSGObject;
+
+      if (data.type === 'imported' && data.geometryData) {
+        const positions = base64ToFloat32(data.geometryData);
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.computeVertexNormals();
+        obj = new CSGObject(
+          'imported', data.operation, {},
+          new THREE.Vector3(data.position.x, data.position.y, data.position.z),
+          data.id,
+        );
+        obj.importedGeometry = geometry;
+        obj.importedRestingYMm = data.importedRestingY ?? 0;
+      } else {
+        obj = new CSGObject(
+          data.type,
+          data.operation,
+          data.dims,
+          new THREE.Vector3(data.position.x, data.position.y, data.position.z),
+          data.id,
+        );
+      }
+
       obj.rotation.set(data.rotation.x, data.rotation.y, data.rotation.z);
       obj.rebuildBrush();
       this.objects.push(obj);

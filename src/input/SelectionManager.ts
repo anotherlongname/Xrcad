@@ -63,6 +63,12 @@ export class SelectionManager {
 
   // ── Public API ───────────────────────────────────────────────────────────────
 
+  /** Auto-select an object without requiring a ray hit (used after STL import). */
+  forceSelect(obj: CSGObject): void {
+    this.clearGhost();
+    this.selectObject(obj);
+  }
+
   startPlacing(type: PrimitiveType, op: CSGOperation): void {
     this.clearGhost();
     this.deselectObject();
@@ -248,7 +254,7 @@ export class SelectionManager {
       changed = true;
     } else if (drag.type === 'y') {
       const dy = Units.sceneToMm(this.hitPoint.y - drag.startHit.y);
-      const minY = CSGObject.restingY(obj.type, obj.dims);
+      const minY = CSGObject.restingY(obj.type, obj.dims, obj.importedRestingYMm);
       obj.position.y = Math.max(minY, Math.round(drag.startPosMm.y + dy / Y_SNAP_MM) * Y_SNAP_MM);
       changed = true;
     } else if (drag.type === 'resize') {

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Brush } from 'three-bvh-csg';
 import { Units } from '../units/Units';
 
-export type PrimitiveType = 'box' | 'sphere' | 'cylinder' | 'cone' | 'torus';
+export type PrimitiveType = 'box' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'imported';
 export type CSGOperation = 'add' | 'subtract';
 
 export interface Dimensions {
@@ -21,6 +21,7 @@ const DEFAULTS: Record<PrimitiveType, Dimensions> = {
   cylinder: { radiusTop: 8, radiusBottom: 8, height: 20 },
   cone:     { radius: 8, height: 20 },
   torus:    { radius: 10, tube: 3 },
+  imported: {},
 };
 
 const ADD_COLOR = 0x3366ff;
@@ -36,13 +37,19 @@ export class CSGObject {
   rotation: THREE.Euler;
   brush: Brush;
 
+  /** Raw geometry with coordinates in mm; set for type === 'imported'. */
+  importedGeometry: THREE.BufferGeometry | null = null;
+  /** Half-height in mm used as Y-drag lower bound for imported meshes. */
+  importedRestingYMm = 0;
+
   static defaultDims(type: PrimitiveType): Dimensions {
     return { ...DEFAULTS[type] };
   }
 
   /** Y offset in mm so the primitive rests on the grid. */
-  static restingY(type: PrimitiveType, dims: Dimensions): number {
+  static restingY(type: PrimitiveType, dims: Dimensions, importedRestingY = 0): number {
     switch (type) {
+      case 'imported':  return importedRestingY;
       case 'box':      return (dims.height ?? 20) / 2;
       case 'sphere':   return dims.radius ?? 10;
       case 'cylinder': return (dims.height ?? 20) / 2;
@@ -68,6 +75,13 @@ export class CSGObject {
   }
 
   private buildGeometry(): THREE.BufferGeometry {
+    if (this.type === 'imported') {
+      if (!this.importedGeometry) return new THREE.BufferGeometry();
+      const geo = this.importedGeometry.clone();
+      const s = Units.mmToScene(1);
+      geo.scale(s, s, s);
+      return geo;
+    }
     const d = this.dims;
     switch (this.type) {
       case 'box':

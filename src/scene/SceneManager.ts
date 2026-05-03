@@ -9,6 +9,7 @@ import { PrimitiveMenu } from '../ui/PrimitiveMenu';
 import { ObjectInspector } from '../ui/ObjectInspector';
 import { NumberInputManager } from '../ui/NumberInputManager';
 import { Exporter } from '../io/Exporter';
+import { Importer } from '../io/Importer';
 import { Units } from '../units/Units';
 
 export class SceneManager {
@@ -84,6 +85,12 @@ export class SceneManager {
       (type, op) => { this.selector.startPlacing(type, op); },
       () => { void this.switchXRMode(); },
       () => { this.scaler.toggleMode(); },
+      (op) => {
+        Importer.importSTL(this.csgScene, op, (obj) => {
+          this.selector.forceSelect(obj);
+          this.dismissMenu();
+        });
+      },
     );
     this.scene.add(this.menu);
 

@@ -50,6 +50,7 @@ const CFGS: Record<PrimitiveType, Cfg[]> = {
     { dimKey: 'radius', axis: new THREE.Vector3(1, 0, 0), sign: 1, color: COL.x },
     { dimKey: 'tube',   axis: new THREE.Vector3(0, 1, 0), sign: 1, color: COL.y },
   ],
+  imported: [], // no resizable dimensions for imported meshes
 };
 
 interface HandleSlot {

@@ -21,8 +21,8 @@ export class PrimitiveMenu extends VRPanel {
     private readonly onShapeSelected: (type: PrimitiveType, op: CSGOperation) => void,
     private readonly onModeToggle: () => void,
     private readonly onGripModeChange: (mode: 'scale' | 'transform') => void,
+    private readonly onImportSTL: (op: CSGOperation) => void,
   ) {
-    // Taller panel to accommodate scale + mode row + grip-mode row
     super(0.30, 0.44, 512);
 
     const row = (r: number) => PAD + 44 + r * (BH + PAD);
@@ -64,17 +64,24 @@ export class PrimitiveMenu extends VRPanel {
         action: () => Importer.loadAutosave(scene) },
     );
 
+    // ── Import STL ──────────────────────────────────────────────────────────
+    this.buttons.push({
+      id: 'stl_import',
+      label: 'IMPORT STL',
+      x: PAD, y: row(5), w: BW * 2 + PAD, h: BH,
+      action: () => onImportSTL(this.nextOp),
+    });
+
     // ── AR / VR toggle ──────────────────────────────────────────────────────
-    // Shown as a half-width button so scale text has room beside it.
     this.buttons.push({
       id: 'mode_toggle',
       label: 'AR / VR',
-      x: COL2, y: row(5), w: BW, h: BH,
+      x: COL2, y: row(6), w: BW, h: BH,
       action: () => onModeToggle(),
     });
 
     // ── Grip mode toggle ─────────────────────────────────────────────────────
-    const gripRow = row(6);
+    const gripRow = row(7);
     this.buttons.push(
       { id: 'grip_scale', label: 'SCALE', x: PAD,  y: gripRow, w: BW, h: BH,
         action: () => { this.gripMode = 'scale';     this.dirty(); onGripModeChange('scale'); } },
@@ -102,7 +109,6 @@ export class PrimitiveMenu extends VRPanel {
   /** Call when the XR session mode changes so the button label stays current. */
   setXRMode(mode: 'immersive-vr' | 'immersive-ar' | null): void {
     this.xrMode = mode;
-    // Update toggle button label to show what the button will switch TO.
     const modeBtn = this.buttons.find(b => b.id === 'mode_toggle');
     if (modeBtn) {
       modeBtn.label = mode === 'immersive-ar' ? '→ VR' : '→ AR';
@@ -132,7 +138,7 @@ export class PrimitiveMenu extends VRPanel {
     }
 
     // ── Scale info (left of the mode toggle button) ─────────────────────────
-    const scaleRow = PAD + 44 + 5 * (BH + PAD); // same y as row(5)
+    const scaleRow = PAD + 44 + 6 * (BH + PAD); // same y as row(6)
     const scale    = Units.workspaceScale;
     const scaleStr = Number.isInteger(scale) ? `${scale}×` : `${scale.toFixed(1)}×`;
     this.text('Scale', PAD, scaleRow + 4, 14, '#64748b');
@@ -143,7 +149,7 @@ export class PrimitiveMenu extends VRPanel {
     this.text(modeLabel, PAD, scaleRow + 44, 14, modeColor);
 
     // Grip section label
-    const gripLabelY = PAD + 44 + 6 * (BH + PAD) - 16;
+    const gripLabelY = PAD + 44 + 7 * (BH + PAD) - 16;
     this.text('both grips', PAD, gripLabelY, 12, '#64748b');
   }
 }
