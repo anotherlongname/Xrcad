@@ -32,6 +32,7 @@ export class NumberInputManager {
       fontFamily: 'monospace',
       boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
       minWidth: '200px',
+      pointerEvents: 'auto',  // re-enable inside the pointer-events:none overlay root
     });
 
     this.labelEl = document.createElement('div');
@@ -62,7 +63,7 @@ export class NumberInputManager {
     this.container.appendChild(this.input);
 
     const hint = document.createElement('div');
-    hint.textContent = 'mm  ·  Enter to confirm  ·  Esc to cancel';
+    hint.textContent = 'Enter or dismiss keyboard to confirm  ·  Esc to cancel';
     Object.assign(hint.style, {
       color: '#475569',
       fontSize: '12px',
@@ -70,14 +71,17 @@ export class NumberInputManager {
     });
     this.container.appendChild(hint);
 
-    document.body.appendChild(this.container);
+    // Append inside the dom-overlay root so the element is visible during a
+    // WebXR session and the Quest system keyboard activates on input focus.
+    const overlayRoot = document.getElementById('xr-overlay') ?? document.body;
+    overlayRoot.appendChild(this.container);
 
     this.input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter')  { e.preventDefault(); this.confirm(); }
       if (e.key === 'Escape') { e.preventDefault(); this.close();   }
     });
 
-    // On Quest the keyboard dismissal fires blur — treat it as confirm.
+    // Quest keyboard dismissal fires blur — treat as confirm.
     this.input.addEventListener('blur', () => {
       // Use a short timeout so an Escape key handler that calls close() first
       // can set onConfirm=null before this fires.

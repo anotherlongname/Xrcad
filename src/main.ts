@@ -17,9 +17,12 @@ vrBtn.disabled = true;
 
 let activeSession: XRSession | null = null;
 
+const xrOverlay = document.getElementById('xr-overlay')!;
+
 async function startXR(): Promise<void> {
   const session = await (navigator.xr as XRSystem).requestSession('immersive-ar', {
-    optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'],
+    optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking', 'dom-overlay'],
+    domOverlay: { root: xrOverlay },
   } as XRSessionInit);
   activeSession = session;
   session.addEventListener('end', () => {

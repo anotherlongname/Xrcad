@@ -251,8 +251,10 @@ export class SceneManager {
     if (current) await current.end();
     const target = this.xrMode === 'immersive-ar' ? 'immersive-vr' : 'immersive-ar';
     try {
+      const overlayRoot = document.getElementById('xr-overlay');
       const opts = {
-        optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'],
+        optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking', 'dom-overlay'],
+        ...(overlayRoot ? { domOverlay: { root: overlayRoot } } : {}),
       } as XRSessionInit;
       const session = await (navigator.xr as XRSystem).requestSession(target, opts);
       await this.renderer.xr.setSession(session);

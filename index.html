@@ -39,6 +39,8 @@
     </style>
   </head>
   <body>
+    <!-- dom-overlay root: transparent when idle, shown over XR view during a session -->
+    <div id="xr-overlay" style="position:fixed;inset:0;pointer-events:none;z-index:100;"></div>
     <div id="file-ops">
       <button id="file-ops-save">SAVE</button>
       <button id="file-ops-load">LOAD .XRCAD</button>
