@@ -29,8 +29,16 @@ function processSTLBuffer(buffer: ArrayBuffer): { geometry: THREE.BufferGeometry
     size.multiplyScalar(s);
   }
 
+  // STL files from 3D printing / CAD tools use Z-up convention.
+  // Rotate −90° around X so STL-Z (up) maps to Three.js-Y (up), standing the
+  // model upright instead of laying it on its side.
+  geometry.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
+
+  // Recompute bounding box after rotation; restingZ is now the correct half-height.
+  geometry.computeBoundingBox();
+  geometry.boundingBox!.getSize(size);
+
   geometry.computeVertexNormals();
-  // Three.js Y extent → resting height in mm so the object sits on the CAD floor (Z=0)
   const restingZ = size.y / 2;
   return { geometry, restingZ };
 }
