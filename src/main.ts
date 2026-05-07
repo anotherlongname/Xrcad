@@ -1,5 +1,7 @@
 import { SceneManager } from './scene/SceneManager';
 
+declare const __BUILD_TIME__: string;
+
 const manager = new SceneManager();
 document.body.appendChild(manager.renderer.domElement);
 
@@ -74,3 +76,20 @@ manager.renderer.xr.addEventListener('sessionend', () => {
 });
 
 manager.start();
+
+// ── Build stamp (bottom-right, hidden during XR) ──────────────────────────────
+const buildStamp = document.createElement('div');
+const d = new Date(__BUILD_TIME__);
+const pad = (n: number) => String(n).padStart(2, '0');
+const stamp = `build ${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} `
+            + `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+buildStamp.textContent = stamp;
+buildStamp.style.cssText = [
+  'position:fixed', 'bottom:6px', 'right:10px',
+  'color:#334155', 'font:11px monospace',
+  'pointer-events:none', 'z-index:5',
+  'user-select:none',
+].join(';');
+document.body.appendChild(buildStamp);
+manager.renderer.xr.addEventListener('sessionstart', () => { buildStamp.style.display = 'none'; });
+manager.renderer.xr.addEventListener('sessionend',   () => { buildStamp.style.display = ''; });
