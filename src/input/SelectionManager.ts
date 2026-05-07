@@ -391,11 +391,16 @@ export class SelectionManager {
       [this.rayL, this.leftLine],
       [this.rayR, this.rightLine],
     ];
+
+    // Exclude the selected object's brush so it doesn't truncate the ray while
+    // the user is trying to point at a menu or panel behind/around the object.
+    const selectedBrush = this.mode.kind === 'selected' ? this.mode.object.brush : null;
+    const selectables = this.csgScene.selectableObjects.filter(b => b !== selectedBrush);
+
     for (const [ray, line] of pairs) {
       if (!line) continue;
-      // Cast against all interactive objects; Three.js skips non-visible ones.
       const hits = ray.intersectObjects([
-        ...this.csgScene.selectableObjects,
+        ...selectables,
         this.menu,
         this.inspector,
         this.resizeHandles,
