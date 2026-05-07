@@ -11,4 +11,7 @@ export default defineConfig(({ command }) => ({
   server: {
     host: true, // expose on LAN so Quest can connect via your machine's IP
   },
+  define: {
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
 }));
