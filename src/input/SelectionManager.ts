@@ -47,6 +47,8 @@ export class SelectionManager {
   private ghost: THREE.Mesh | null = null;
   private readonly resizeHandles: ResizeHandles;
   private readonly rotationHandles: RotationHandles;
+  private leftLine:  THREE.Line | null = null;
+  private rightLine: THREE.Line | null = null;
   private readonly rayL = new THREE.Raycaster();
   private readonly rayR = new THREE.Raycaster();
   private readonly tempMat = new THREE.Matrix4();
@@ -67,6 +69,11 @@ export class SelectionManager {
   }
 
   // ── Public API ───────────────────────────────────────────────────────────────
+
+  setRayLines(left: THREE.Line, right: THREE.Line): void {
+    this.leftLine  = left;
+    this.rightLine = right;
+  }
 
   /** Auto-select an object without requiring a ray hit (used after STL import). */
   forceSelect(obj: CSGObject): void {
@@ -100,6 +107,8 @@ export class SelectionManager {
       case 'placing':  this.updatePlacing(cameraForward);  break;
       case 'selected': this.updateSelected(cameraForward); break;
     }
+
+    this.updateRayLines();
   }
 
   // ── Mode: idle ───────────────────────────────────────────────────────────────
@@ -374,6 +383,25 @@ export class SelectionManager {
       (this.ghost.material as THREE.Material).dispose();
       this.ghost.geometry.dispose();
       this.ghost = null;
+    }
+  }
+
+  private updateRayLines(): void {
+    const pairs: [THREE.Raycaster, THREE.Line | null][] = [
+      [this.rayL, this.leftLine],
+      [this.rayR, this.rightLine],
+    ];
+    for (const [ray, line] of pairs) {
+      if (!line) continue;
+      // Cast against all interactive objects; Three.js skips non-visible ones.
+      const hits = ray.intersectObjects([
+        ...this.csgScene.selectableObjects,
+        this.menu,
+        this.inspector,
+        this.resizeHandles,
+        this.rotationHandles,
+      ], true);
+      line.scale.z = hits.length > 0 ? hits[0].distance : 5;
     }
   }
 

@@ -93,8 +93,8 @@ export class SceneManager {
     this.scene.add(this.menu);
 
     // ── Controllers ───────────────────────────────────────────────────────────
-    const [leftCtrl, leftGrip]   = this.setupController(0);
-    const [rightCtrl, rightGrip] = this.setupController(1);
+    const [leftCtrl, leftGrip, leftLine]   = this.setupController(0);
+    const [rightCtrl, rightGrip, rightLine] = this.setupController(1);
 
     this.left  = new ControllerState('left',  leftCtrl,  leftGrip);
     this.right = new ControllerState('right', rightCtrl, rightGrip);
@@ -103,6 +103,7 @@ export class SceneManager {
     this.selector = new SelectionManager(
       this.left, this.right, this.csgScene, this.scene, this.inspector, this.menu,
     );
+    this.selector.setRayLines(leftLine, rightLine);
     this.scaler = new WorkspaceScaler(this.left, this.right, this.csgScene, this.grid);
 
     window.addEventListener('resize', this.onResize);
@@ -125,16 +126,17 @@ export class SceneManager {
     this.scene.add(sun);
   }
 
-  private setupController(index: number): [THREE.XRTargetRaySpace, THREE.XRGripSpace] {
+  private setupController(index: number): [THREE.XRTargetRaySpace, THREE.XRGripSpace, THREE.Line] {
     const controller = this.renderer.xr.getController(index);
-    controller.add(this.buildRayLine());
+    const line = this.buildRayLine();
+    controller.add(line);
     this.scene.add(controller);
 
     const grip = this.renderer.xr.getControllerGrip(index);
     grip.add(this.modelFactory.createControllerModel(grip));
     this.scene.add(grip);
 
-    return [controller, grip];
+    return [controller, grip, line];
   }
 
   private buildRayLine(): THREE.Line {
