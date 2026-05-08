@@ -22,8 +22,9 @@ export class PrimitiveMenu extends VRPanel {
     private readonly onExitXR: () => void,
     private readonly onUndo: () => void,
     private readonly onRedo: () => void,
+    private readonly onExportSTL: () => void,
   ) {
-    super(0.30, 0.27, 512);
+    super(0.30, 0.30, 512);
 
     const row = (r: number) => PAD + 44 + r * (BH + PAD);
 
@@ -85,6 +86,14 @@ export class PrimitiveMenu extends VRPanel {
       { id: 'undo', label: 'UNDO', x: PAD,  y: row(7), w: BW, h: BH, action: () => onUndo() },
       { id: 'redo', label: 'REDO', x: COL2, y: row(7), w: BW, h: BH, action: () => onRedo() },
     );
+
+    // ── Export STL ────────────────────────────────────────────────────────────
+    this.buttons.push({
+      id: 'export_stl',
+      label: 'EXPORT STL',
+      x: PAD, y: row(8), w: BW * 2 + PAD, h: BH,
+      action: () => onExportSTL(),
+    });
 
     this.visible = false;
     this.dirty();

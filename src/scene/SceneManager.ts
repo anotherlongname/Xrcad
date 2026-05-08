@@ -108,6 +108,7 @@ export class SceneManager {
       () => { void this.renderer.xr.getSession()?.end(); },
       () => { this.undoManager.undo(this.csgScene); this.selector.deselect(); },
       () => { this.undoManager.redo(this.csgScene); this.selector.deselect(); },
+      () => { this.saveSTL(); },
     );
     this.scene.add(this.menu);
 
@@ -174,6 +175,10 @@ export class SceneManager {
 
   save2D(): void {
     Exporter.save(this.csgScene);
+  }
+
+  saveSTL(): void {
+    Exporter.exportSTL(this.csgScene);
   }
 
   load2D(): void {
@@ -339,6 +344,10 @@ export class SceneManager {
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
       e.preventDefault();
       Exporter.save(this.csgScene);
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
+      e.preventDefault();
+      Exporter.exportSTL(this.csgScene);
     }
   }
 

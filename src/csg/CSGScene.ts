@@ -181,4 +181,9 @@ export class CSGScene extends THREE.Group {
   get selectableObjects(): THREE.Object3D[] {
     return this.objects.map(o => o.brush);
   }
+
+  /** The compiled CSG result geometry in scene-local space, or null if empty. */
+  get resultGeometry(): THREE.BufferGeometry | null {
+    return this.resultMesh?.geometry ?? null;
+  }
 }
