@@ -44,11 +44,12 @@ export class SelectionManager {
   private xyDrag: { ctrl: ControllerState; plane: THREE.Plane; startHit: THREE.Vector3; startPosMm: THREE.Vector3 } | null = null;
   private zDrag:  { plane: THREE.Plane; startHit: THREE.Vector3; startPosMm: THREE.Vector3 } | null = null;
   private rotateStart:    { ctrlQuat: THREE.Quaternion; objQuat: THREE.Quaternion } | null = null;
-  private activeDimIdx  = 0;
-  private resizeStepIdx = 1;
-  private resizeAccum   = 0;
-  private lastLStickX   = 0;
-  private lastLStickY   = 0;
+  private activeDimIdx       = 0;
+  private resizeStepIdx      = 1;
+  private resizeAccum        = 0;
+  private lastLStickX        = 0;
+  private lastLStickY        = 0;
+  private resizeUndoPending  = false;
   private static readonly RESIZE_STEPS = [1, 5, 10, 50]; // mm
 
   constructor(
@@ -59,6 +60,7 @@ export class SelectionManager {
     private readonly inspector: ObjectInspector,
     private readonly menu: PrimitiveMenu,
     private readonly numInputPanel: NumberInputPanel,
+    private readonly pushUndo: () => void,
   ) {
     this.resizeHandles = new ResizeHandles();
     threeScene.add(this.resizeHandles);
@@ -90,6 +92,11 @@ export class SelectionManager {
       this.clearGhost();
       this.mode = { kind: 'idle' };
     }
+  }
+
+  deselect(): void {
+    if (this.mode.kind === 'selected') this.deselectObject();
+    else if (this.mode.kind === 'placing') this.cancelPlacing();
   }
 
   // ── Per-frame update ─────────────────────────────────────────────────────────
@@ -179,6 +186,7 @@ export class SelectionManager {
     obj.position.set(snapX, snapY, restingZ);
     obj.rebuildBrush();
     this.csgScene.compile();
+    this.pushUndo();
 
     this.clearGhost();
     this.menu.clearSelection();
@@ -201,6 +209,7 @@ export class SelectionManager {
     if (this.xyDrag) {
       if (!this.xyDrag.ctrl.triggerDown) {
         this.xyDrag = null;
+        this.pushUndo();
       } else {
         const ray = this.rayFor(this.xyDrag.ctrl);
         const hit = new THREE.Vector3();
@@ -234,7 +243,11 @@ export class SelectionManager {
         this.zDrag = { plane, startHit: startHit.clone(), startPosMm: obj.position.clone() };
       }
     }
-    if (!this.right.gripDown) this.zDrag = null;
+    if (!this.right.gripDown) {
+      const wasDragging = this.zDrag !== null;
+      this.zDrag = null;
+      if (wasDragging) this.pushUndo();
+    }
     if (this.right.gripDown && this.zDrag) {
       const hit = new THREE.Vector3();
       if (this.rayR.ray.intersectPlane(this.zDrag.plane, hit)) {
@@ -256,7 +269,11 @@ export class SelectionManager {
           new THREE.Euler(obj.rotation.x, obj.rotation.y, obj.rotation.z, 'XYZ')),
       };
     }
-    if (!this.left.gripDown) this.rotateStart = null;
+    if (!this.left.gripDown) {
+      const wasRotating = this.rotateStart !== null;
+      this.rotateStart = null;
+      if (wasRotating) this.pushUndo();
+    }
     if (this.left.gripDown && this.rotateStart) {
       const cur = new THREE.Quaternion();
       this.left.grip.getWorldQuaternion(cur);
@@ -295,6 +312,7 @@ export class SelectionManager {
     const ry = -this.right.thumbstick.y;  // push up = increase
     const step = SelectionManager.RESIZE_STEPS[this.resizeStepIdx];
     if (Math.abs(ry) > 0.3 && activeKey) {
+      this.resizeUndoPending = true;
       this.resizeAccum += ry * 3 / 72;   // ~3 discrete steps/second at full deflection
       if (Math.abs(this.resizeAccum) >= 1) {
         const n = Math.trunc(this.resizeAccum);
@@ -303,6 +321,10 @@ export class SelectionManager {
         changed = true;
       }
     } else {
+      if (this.resizeUndoPending) {
+        this.resizeUndoPending = false;
+        this.pushUndo();
+      }
       this.resizeAccum = 0;
     }
 
@@ -356,12 +378,13 @@ export class SelectionManager {
     this.inspector.inspect(null);
     this.csgScene.setEditMode(false);
     this.resizeHandles.unbind();
-    this.xyDrag         = null;
-    this.zDrag          = null;
-    this.rotateStart    = null;
-    this.activeDimIdx   = 0;
-    this.resizeStepIdx  = 1;
-    this.resizeAccum    = 0;
+    this.xyDrag            = null;
+    this.zDrag             = null;
+    this.rotateStart       = null;
+    this.activeDimIdx      = 0;
+    this.resizeStepIdx     = 1;
+    this.resizeAccum       = 0;
+    this.resizeUndoPending = false;
   }
 
   private raycastObjects(ray: THREE.Raycaster): CSGObject | null {
