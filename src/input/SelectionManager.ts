@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { ControllerState } from './ControllerState';
 import { ResizeHandles } from './ResizeHandles';
-import { RotationHandles } from './RotationHandles';
 import { CSGObject, CSGOperation, PrimitiveType } from '../csg/CSGObject';
 import { CSGScene } from '../csg/CSGScene';
 import { ObjectInspector } from '../ui/ObjectInspector';
@@ -16,23 +15,10 @@ function snapMm(mm: number): number {
   return Math.round(mm / GRID_STEP_MM) * GRID_STEP_MM;
 }
 
-// CAD convention: XY is the horizontal plane, Z is up/down.
-type DragType = 'xy' | 'z' | 'resize' | 'rotate';
-
-interface ActiveDrag {
-  ctrl: ControllerState;
-  type: DragType;
-  /** Drag plane for XY / Z; resize uses ResizeHandles' own plane. */
-  plane: THREE.Plane;
-  startHit: THREE.Vector3;
-  /** Object position in mm at drag start, for delta maths. */
-  startPosMm: THREE.Vector3;
-}
-
 type Mode =
   | { kind: 'idle' }
   | { kind: 'placing'; type: PrimitiveType; op: CSGOperation; restingZ: number }
-  | { kind: 'selected'; object: CSGObject; drag: ActiveDrag | null };
+  | { kind: 'selected'; object: CSGObject };
 
 /**
  * Interaction modes:
@@ -47,13 +33,22 @@ export class SelectionManager {
   private mode: Mode = { kind: 'idle' };
   private ghost: THREE.Mesh | null = null;
   private readonly resizeHandles: ResizeHandles;
-  private readonly rotationHandles: RotationHandles;
   private leftLine:  THREE.Line | null = null;
   private rightLine: THREE.Line | null = null;
   private readonly rayL = new THREE.Raycaster();
   private readonly rayR = new THREE.Raycaster();
   private readonly tempMat = new THREE.Matrix4();
   private readonly hitPoint = new THREE.Vector3();
+
+  // Gesture-based manipulation state
+  private translateStart: { ctrlPos: THREE.Vector3; objPosMm: THREE.Vector3 } | null = null;
+  private rotateStart:    { ctrlQuat: THREE.Quaternion; objQuat: THREE.Quaternion } | null = null;
+  private activeDimIdx  = 0;
+  private resizeStepIdx = 1;
+  private resizeAccum   = 0;
+  private lastLStickX   = 0;
+  private lastLStickY   = 0;
+  private static readonly RESIZE_STEPS = [1, 5, 10, 50]; // mm
 
   constructor(
     private readonly left: ControllerState,
@@ -66,8 +61,6 @@ export class SelectionManager {
   ) {
     this.resizeHandles = new ResizeHandles();
     threeScene.add(this.resizeHandles);
-    this.rotationHandles = new RotationHandles();
-    threeScene.add(this.rotationHandles);
   }
 
   // ── Public API ───────────────────────────────────────────────────────────────
@@ -193,161 +186,113 @@ export class SelectionManager {
 
   // ── Mode: selected ───────────────────────────────────────────────────────────
 
-  private updateSelected(cameraForward: THREE.Vector3): void {
-    const state = this.mode as Extract<Mode, { kind: 'selected' }>;
-    const obj   = state.object;
+  private updateSelected(_cameraForward: THREE.Vector3): void {
+    const obj = (this.mode as Extract<Mode, { kind: 'selected' }>).object;
+    let changed = false;
 
-    // ── End active drag when the controlling button is released ──────────────
-    if (state.drag) {
-      const { ctrl, type } = state.drag;
-      const buttonStillDown = type === 'z' ? ctrl.gripDown : ctrl.triggerDown;
-      if (!buttonStillDown) {
-        if (type === 'resize') this.resizeHandles.endDrag();
-        if (type === 'rotate') this.rotationHandles.endDrag();
-        state.drag = null;
+    // ── Right grip → 3D translate ─────────────────────────────────────────────
+    if (this.right.gripJustDown) {
+      const pos = new THREE.Vector3();
+      this.right.controller.getWorldPosition(pos);
+      this.translateStart = { ctrlPos: pos, objPosMm: obj.position.clone() };
+    }
+    if (!this.right.gripDown) this.translateStart = null;
+    if (this.right.gripDown && this.translateStart) {
+      const cur = new THREE.Vector3();
+      this.right.controller.getWorldPosition(cur);
+      // Rotate world delta into csgScene local space so workspace yaw is handled.
+      const local = cur.clone().sub(this.translateStart.ctrlPos)
+        .applyQuaternion(this.csgScene.quaternion.clone().invert());
+      obj.position.x = snapMm(this.translateStart.objPosMm.x + Units.sceneToMm(local.x));
+      obj.position.y = snapMm(this.translateStart.objPosMm.y + Units.sceneToMm(local.z)); // Three.js Z → CAD Y
+      const minZ = CSGObject.restingZ(obj.type, obj.dims, obj.importedRestingZMm);
+      obj.position.z = Math.max(minZ,
+        Math.round((this.translateStart.objPosMm.z + Units.sceneToMm(local.y)) / Z_SNAP_MM) * Z_SNAP_MM);
+      changed = true;
+    }
+
+    // ── Left grip → rotate ─────────────────────────────────────────────────────
+    if (this.left.gripJustDown) {
+      const q = new THREE.Quaternion();
+      this.left.grip.getWorldQuaternion(q);
+      this.rotateStart = {
+        ctrlQuat: q.clone(),
+        objQuat: new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(obj.rotation.x, obj.rotation.y, obj.rotation.z, 'XYZ')),
+      };
+    }
+    if (!this.left.gripDown) this.rotateStart = null;
+    if (this.left.gripDown && this.rotateStart) {
+      const cur = new THREE.Quaternion();
+      this.left.grip.getWorldQuaternion(cur);
+      const worldDelta = cur.clone().multiply(this.rotateStart.ctrlQuat.clone().invert());
+      // Express delta in csgScene local space to handle workspace rotation.
+      const sceneQ = new THREE.Quaternion();
+      this.csgScene.getWorldQuaternion(sceneQ);
+      const localDelta = sceneQ.clone().invert().multiply(worldDelta).multiply(sceneQ);
+      const newQ = localDelta.multiply(this.rotateStart.objQuat.clone());
+      const e = new THREE.Euler().setFromQuaternion(newQ, 'XYZ');
+      const snap = 5 * Math.PI / 180;
+      obj.rotation.x = Math.round(e.x / snap) * snap;
+      obj.rotation.y = Math.round(e.y / snap) * snap;
+      obj.rotation.z = Math.round(e.z / snap) * snap;
+      changed = true;
+    }
+
+    // ── Left joystick → cycle active dimension / step size ─────────────────────
+    const dims = obj.dims as Record<string, number>;
+    const dimKeys = Object.keys(dims).filter(k => dims[k] !== undefined);
+    const nDims = Math.max(dimKeys.length, 1);
+    const lx = this.left.thumbstick.x;
+    const ly = this.left.thumbstick.y;
+    if (lx >  0.6 && this.lastLStickX <=  0.6) this.activeDimIdx = (this.activeDimIdx + 1) % nDims;
+    if (lx < -0.6 && this.lastLStickX >= -0.6) this.activeDimIdx = (this.activeDimIdx - 1 + nDims) % nDims;
+    if (ly >  0.6 && this.lastLStickY <=  0.6)
+      this.resizeStepIdx = Math.min(SelectionManager.RESIZE_STEPS.length - 1, this.resizeStepIdx + 1);
+    if (ly < -0.6 && this.lastLStickY >= -0.6)
+      this.resizeStepIdx = Math.max(0, this.resizeStepIdx - 1);
+    this.lastLStickX = lx;
+    this.lastLStickY = ly;
+    const activeKey = dimKeys.length ? dimKeys[this.activeDimIdx % dimKeys.length] : null;
+    this.inspector.setActiveDim(activeKey, SelectionManager.RESIZE_STEPS[this.resizeStepIdx]);
+
+    // ── Right joystick → adjust active dimension ───────────────────────────────
+    const ry = -this.right.thumbstick.y;  // push up = increase
+    const step = SelectionManager.RESIZE_STEPS[this.resizeStepIdx];
+    if (Math.abs(ry) > 0.3 && activeKey) {
+      this.resizeAccum += ry * 3 / 72;   // ~3 discrete steps/second at full deflection
+      if (Math.abs(this.resizeAccum) >= 1) {
+        const n = Math.trunc(this.resizeAccum);
+        this.resizeAccum -= n;
+        dims[activeKey] = Math.max(1, (dims[activeKey] ?? 1) + n * step);
+        changed = true;
       }
+    } else {
+      this.resizeAccum = 0;
     }
 
-    // ── Continue active drag ─────────────────────────────────────────────────
-    if (state.drag) {
-      const ray = this.rayFor(state.drag.ctrl);
-      this.continueDrag(state.drag, ray, obj);
-      return;
-    }
-
-    // ── No drag — poll both controllers for new input ────────────────────────
+    // ── Trigger → panel interaction / select / deselect ───────────────────────
     for (const [ctrl, ray] of this.ctrlRays()) {
-      const otherCtrl = ctrl === this.left ? this.right : this.left;
-
-      // Panel hit-testing
-      const inspHit    = this.inspector.visible ? this.inspector.hitTest(ray) : null;
-      const menuHit    = this.menu.visible       ? this.menu.hitTest(ray)     : null;
-      const handleSlot = this.resizeHandles.hitTest(ray);
-      const ringSlot   = this.rotationHandles.hitTest(ray);
+      const inspHit = this.inspector.visible ? this.inspector.hitTest(ray) : null;
+      const menuHit = this.menu.visible       ? this.menu.hitTest(ray)     : null;
       this.inspector.onHover(inspHit);
       this.menu.onHover(menuHit);
-      this.resizeHandles.onHover(handleSlot);
-      this.rotationHandles.onHover(ringSlot);
-
-      // ── Grip → Z-axis drag (only when the other grip is NOT down) ──────────
-      if (ctrl.gripJustDown && !otherCtrl.gripDown) {
-        state.drag = this.beginZDrag(ctrl, ray, obj, cameraForward);
-        return;
-      }
 
       if (!ctrl.triggerJustDown) continue;
-
-      // Panels take priority
       if (inspHit) { this.inspector.onPress(inspHit); return; }
-      if (menuHit) { this.menu.onPress(menuHit);     return; }
-
-      // ── Trigger on rotation ring ──────────────────────────────────────────
-      if (ringSlot) {
-        if (this.rotationHandles.beginDrag(ringSlot, ray, obj)) {
-          state.drag = {
-            ctrl, type: 'rotate',
-            plane: new THREE.Plane(),       // unused — RotationHandles owns its plane
-            startHit: new THREE.Vector3(),
-            startPosMm: obj.position.clone(),
-          };
-        }
-        return;
-      }
-
-      // ── Trigger on resize handle ──────────────────────────────────────────
-      if (handleSlot) {
-        if (this.resizeHandles.beginDrag(handleSlot, ray, cameraForward, obj)) {
-          state.drag = {
-            ctrl, type: 'resize',
-            plane: new THREE.Plane(),       // unused — ResizeHandles owns its plane
-            startHit: new THREE.Vector3(),
-            startPosMm: obj.position.clone(),
-          };
-        }
-        return;
-      }
-
-      // ── Trigger on object / empty ─────────────────────────────────────────
+      if (menuHit) { this.menu.onPress(menuHit);      return; }
       const hitObj = this.raycastObjects(ray);
       if (hitObj === null) { this.deselectObject(); return; }
       if (hitObj !== obj)  { this.selectObject(hitObj); return; }
-
-      // Same object → begin XY ground-plane drag
-      const ground = this.currentGroundPlane();
-      if (ray.ray.intersectPlane(ground, this.hitPoint)) {
-        state.drag = {
-          ctrl, type: 'xy',
-          plane: ground,
-          startHit: this.hitPoint.clone(),
-          startPosMm: obj.position.clone(),
-        };
-      }
-      return;
-    }
-  }
-
-  private continueDrag(drag: ActiveDrag, ray: THREE.Raycaster, obj: CSGObject): void {
-    if (!ray.ray.intersectPlane(drag.plane, this.hitPoint)) return;
-
-    let changed = false;
-
-    if (drag.type === 'xy') {
-      // World-space delta rotated into csgScene local space (handles yaw rotation).
-      // Three.js X delta → CAD X delta; Three.js Z delta → CAD Y (depth) delta.
-      const worldDelta = new THREE.Vector3(
-        this.hitPoint.x - drag.startHit.x,
-        0,
-        this.hitPoint.z - drag.startHit.z,
-      ).applyQuaternion(this.csgScene.quaternion.clone().invert());
-      obj.position.x = snapMm(drag.startPosMm.x + Units.sceneToMm(worldDelta.x));
-      obj.position.y = snapMm(drag.startPosMm.y + Units.sceneToMm(worldDelta.z));  // Three.js Z → CAD Y
-      changed = true;
-    } else if (drag.type === 'z') {
-      // Three.js Y delta → CAD Z (vertical) delta.
-      const dz = Units.sceneToMm(this.hitPoint.y - drag.startHit.y);
-      const minZ = CSGObject.restingZ(obj.type, obj.dims, obj.importedRestingZMm);
-      obj.position.z = Math.max(minZ, Math.round(drag.startPosMm.z + dz / Z_SNAP_MM) * Z_SNAP_MM);
-      changed = true;
-    } else if (drag.type === 'resize') {
-      changed = this.resizeHandles.continueDrag(ray, obj);
-    } else if (drag.type === 'rotate') {
-      changed = this.rotationHandles.continueDrag(ray, obj);
+      // Trigger on the already-selected object body → no-op (grip handles movement)
     }
 
     if (changed) {
       obj.rebuildBrush();
       this.csgScene.compile();
       this.resizeHandles.refresh(obj);
-      this.rotationHandles.refresh(obj);
       this.inspector.dirty();
     }
-  }
-
-  private beginZDrag(
-    ctrl: ControllerState,
-    ray: THREE.Raycaster,
-    obj: CSGObject,
-    cameraForward: THREE.Vector3,
-  ): ActiveDrag | null {
-    // Vertical billboard plane facing the camera through the object's world centre.
-    const horizFwd = cameraForward.clone();
-    horizFwd.y = 0;  // zero Three.js Y to keep the forward direction horizontal
-    if (horizFwd.lengthSq() < 0.001) horizFwd.set(0, 0, -1);
-    horizFwd.normalize();
-
-    // Convert CSG (CAD) position to Three.js world position:
-    // Three.js Y = CAD Z (up), Three.js Z = CAD Y (depth).
-    const objWorld = this.csgScene.localToWorld(new THREE.Vector3(
-      Units.mmToScene(obj.position.x),
-      Units.mmToScene(obj.position.z),  // CAD Z → Three.js Y
-      Units.mmToScene(obj.position.y),  // CAD Y → Three.js Z
-    ));
-    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(horizFwd, objWorld);
-
-    const startHit = new THREE.Vector3();
-    if (!ray.ray.intersectPlane(plane, startHit)) return null;
-
-    return { ctrl, type: 'z', plane, startHit: startHit.clone(), startPosMm: obj.position.clone() };
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -358,11 +303,10 @@ export class SelectionManager {
   }
 
   private selectObject(obj: CSGObject): void {
-    this.mode = { kind: 'selected', object: obj, drag: null };
+    this.mode = { kind: 'selected', object: obj };
     this.inspector.inspect(obj);
     this.csgScene.setEditMode(true);
     this.resizeHandles.bindTo(obj);
-    this.rotationHandles.bindTo(obj);
   }
 
   private deselectObject(): void {
@@ -370,7 +314,11 @@ export class SelectionManager {
     this.inspector.inspect(null);
     this.csgScene.setEditMode(false);
     this.resizeHandles.unbind();
-    this.rotationHandles.unbind();
+    this.translateStart = null;
+    this.rotateStart    = null;
+    this.activeDimIdx   = 0;
+    this.resizeStepIdx  = 1;
+    this.resizeAccum    = 0;
   }
 
   private raycastObjects(ray: THREE.Raycaster): CSGObject | null {
@@ -421,7 +369,6 @@ export class SelectionManager {
         this.menu,
         this.inspector,
         this.resizeHandles,
-        this.rotationHandles,
         ...(this.numInputPanel.visible ? [this.numInputPanel] : []),
       ], true);
       line.scale.z = hits.length > 0 ? hits[0].distance : 5;

@@ -81,7 +81,6 @@ export class ResizeHandles extends THREE.Group {
   activeDrag: DragState | null = null;
 
   private boxHelper: THREE.BoxHelper | null = null;
-  private handleGeo: THREE.PlaneGeometry | null = null;
 
   constructor() {
     super();
@@ -92,24 +91,6 @@ export class ResizeHandles extends THREE.Group {
 
   bindTo(obj: CSGObject): void {
     this.unbind();
-
-    const s = Units.mmToScene(HANDLE_MM);
-    this.handleGeo = new THREE.PlaneGeometry(s, s);
-
-    const zAxis = new THREE.Vector3(0, 0, 1);
-    for (const cfg of CFGS[obj.type]) {
-      const mat = new THREE.MeshBasicMaterial({
-        color: cfg.color,
-        side: THREE.DoubleSide,  // visible from any angle in AR/VR
-        depthTest: false,
-      });
-      const mesh = new THREE.Mesh(this.handleGeo, mat);
-      // Orient so the plane's normal faces outward along cfg.axis
-      mesh.quaternion.setFromUnitVectors(zAxis, cfg.axis);
-      const slot: HandleSlot = { mesh, cfg };
-      this.slots.push(slot);
-      this.add(mesh);
-    }
 
     this.boxHelper = new THREE.BoxHelper(obj.brush, WIREFRAME_COLOR);
     (this.boxHelper.material as THREE.LineBasicMaterial).depthTest = false;
@@ -125,11 +106,6 @@ export class ResizeHandles extends THREE.Group {
       (s.mesh.material as THREE.Material).dispose();
     }
     this.slots = [];
-
-    if (this.handleGeo) {
-      this.handleGeo.dispose();
-      this.handleGeo = null;
-    }
 
     if (this.boxHelper) {
       this.remove(this.boxHelper);
