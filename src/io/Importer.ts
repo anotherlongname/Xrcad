@@ -57,7 +57,7 @@ export class Importer {
   }
 
   /** Open a .xrcad file picker (2D browser context only). */
-  static openFilePicker(scene: CSGScene): void {
+  static openFilePicker(scene: CSGScene, onLoaded?: () => void): void {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.xrcad,application/json';
@@ -67,6 +67,7 @@ export class Importer {
       try {
         const text = await file.text();
         Importer.applyFile(scene, JSON.parse(text) as XrcadFile);
+        onLoaded?.();
       } catch (e) {
         console.error('[XrCAD] Failed to parse file:', e);
       }

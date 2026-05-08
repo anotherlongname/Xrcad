@@ -20,8 +20,10 @@ export class PrimitiveMenu extends VRPanel {
     private readonly onModeToggle: () => void,
     private readonly onGripModeChange: (mode: 'scale' | 'transform') => void,
     private readonly onExitXR: () => void,
+    private readonly onUndo: () => void,
+    private readonly onRedo: () => void,
   ) {
-    super(0.30, 0.24, 512);
+    super(0.30, 0.27, 512);
 
     const row = (r: number) => PAD + 44 + r * (BH + PAD);
 
@@ -77,6 +79,12 @@ export class PrimitiveMenu extends VRPanel {
       x: PAD, y: row(6), w: BW * 2 + PAD, h: BH,
       action: () => onExitXR(),
     });
+
+    // ── Undo / Redo ───────────────────────────────────────────────────────────
+    this.buttons.push(
+      { id: 'undo', label: 'UNDO', x: PAD,  y: row(7), w: BW, h: BH, action: () => onUndo() },
+      { id: 'redo', label: 'REDO', x: COL2, y: row(7), w: BW, h: BH, action: () => onRedo() },
+    );
 
     this.visible = false;
     this.dirty();

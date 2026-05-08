@@ -12,6 +12,7 @@ import { NumberInputPanel } from '../ui/NumberInputPanel';
 import { Exporter } from '../io/Exporter';
 import { Importer } from '../io/Importer';
 import { Units } from '../units/Units';
+import { UndoManager } from '../input/UndoManager';
 
 export class SceneManager {
   readonly renderer: THREE.WebGLRenderer;
@@ -30,6 +31,7 @@ export class SceneManager {
 
   private readonly modelFactory = new XRControllerModelFactory();
 
+  private readonly undoManager = new UndoManager();
   private xrMode: 'immersive-vr' | 'immersive-ar' | null = null;
   private lastScale = -1;
 
@@ -91,7 +93,9 @@ export class SceneManager {
       }
     };
 
-    this.inspector = new ObjectInspector(this.csgScene, openInput);
+    const pushUndo = () => this.undoManager.push(this.csgScene);
+
+    this.inspector = new ObjectInspector(this.csgScene, openInput, pushUndo);
     this.scene.add(this.inspector);
 
     // Menu is added to the scene (not to a grip) and starts hidden.
@@ -102,6 +106,8 @@ export class SceneManager {
       () => { void this.switchXRMode(); },
       () => { this.scaler.toggleMode(); },
       () => { void this.renderer.xr.getSession()?.end(); },
+      () => { this.undoManager.undo(this.csgScene); this.selector.deselect(); },
+      () => { this.undoManager.redo(this.csgScene); this.selector.deselect(); },
     );
     this.scene.add(this.menu);
 
@@ -115,10 +121,12 @@ export class SceneManager {
     // ── Input managers ────────────────────────────────────────────────────────
     this.selector = new SelectionManager(
       this.left, this.right, this.csgScene, this.scene, this.inspector, this.menu,
-      this.numInputPanel,
+      this.numInputPanel, pushUndo,
     );
     this.selector.setRayLines(leftLine, rightLine);
     this.scaler = new WorkspaceScaler(this.left, this.right, this.csgScene, this.grid);
+
+    this.undoManager.push(this.csgScene); // S0: initial empty scene
 
     window.addEventListener('resize', this.onResize);
   }
@@ -169,13 +177,17 @@ export class SceneManager {
   }
 
   load2D(): void {
-    Importer.openFilePicker(this.csgScene);
+    Importer.openFilePicker(this.csgScene, () => {
+      this.undoManager.reset(this.csgScene);
+      this.selector.deselect();
+    });
   }
 
   importSTL2D(): void {
     Importer.importSTL2D(this.csgScene, 'add', (obj) => {
       this.csgScene.compile();
       this.selector.forceSelect(obj);
+      this.undoManager.push(this.csgScene);
     });
   }
 
@@ -196,6 +208,18 @@ export class SceneManager {
     // X button on right controller (A) → dismiss menu / cancel placement
     if (this.right.primaryButtonJustDown && this.menu.visible) {
       this.dismissMenu();
+    }
+
+    // Y button on left controller → undo
+    if (this.left.secondaryButtonJustDown) {
+      this.undoManager.undo(this.csgScene);
+      this.selector.deselect();
+    }
+
+    // B button on right controller → redo
+    if (this.right.secondaryButtonJustDown) {
+      this.undoManager.redo(this.csgScene);
+      this.selector.deselect();
     }
 
     const xrCam = this.renderer.xr.getCamera();
@@ -288,15 +312,28 @@ export class SceneManager {
 
   /** Desktop keyboard shortcuts for testing outside VR. */
   handleKeyDown(e: KeyboardEvent): void {
-    if (e.key === 'b') this.csgScene.addObject('box');
-    if (e.key === 'c') this.csgScene.addObject('cylinder');
-    if (e.key === 's') this.csgScene.addObject('sphere');
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      this.undoManager.undo(this.csgScene);
+      this.selector.deselect();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+      e.preventDefault();
+      this.undoManager.redo(this.csgScene);
+      this.selector.deselect();
+      return;
+    }
+    if (e.key === 'b') { this.csgScene.addObject('box');      this.undoManager.push(this.csgScene); }
+    if (e.key === 'c') { this.csgScene.addObject('cylinder'); this.undoManager.push(this.csgScene); }
+    if (e.key === 's') { this.csgScene.addObject('sphere');   this.undoManager.push(this.csgScene); }
     if (e.key === 'h') {
       const last = this.csgScene.objects.at(-1);
       if (last) {
         last.operation = last.operation === 'add' ? 'subtract' : 'add';
         last.rebuildBrush();
         this.csgScene.compile();
+        this.undoManager.push(this.csgScene);
       }
     }
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {

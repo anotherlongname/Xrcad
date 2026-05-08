@@ -41,6 +41,7 @@ export class ObjectInspector extends VRPanel {
   constructor(
     private readonly scene: CSGScene,
     private readonly openInput: (value: number, label: string, onConfirm: (v: number) => void) => void,
+    private readonly pushUndo: () => void,
   ) {
     // 0.30m wide × 0.46m tall
     super(0.30, 0.46, 512);
@@ -94,6 +95,7 @@ export class ObjectInspector extends VRPanel {
         this.scene.compile();
         this.rebuildButtons();
         this.dirty();
+        this.pushUndo();
       },
     });
 
@@ -102,7 +104,7 @@ export class ObjectInspector extends VRPanel {
       id: 'delete',
       label: 'DEL',
       x: PAD + 140, y: 48, w: 72, h: BH,
-      action: () => { this.scene.removeObject(obj.id); this.inspect(null); },
+      action: () => { this.scene.removeObject(obj.id); this.inspect(null); this.pushUndo(); },
     });
 
     // ── Dimension rows ─────────────────────────────────────────────────────
@@ -247,6 +249,7 @@ export class ObjectInspector extends VRPanel {
     this.scene.compile();
     this.rebuildButtons();
     this.dirty();
+    this.pushUndo();
   }
 
   private afterPosChange(obj: CSGObject): void {
@@ -254,6 +257,7 @@ export class ObjectInspector extends VRPanel {
     this.scene.compile();
     this.rebuildButtons();
     this.dirty();
+    this.pushUndo();
   }
 
   private afterRotChange(obj: CSGObject): void {
@@ -261,6 +265,7 @@ export class ObjectInspector extends VRPanel {
     this.scene.compile();
     this.rebuildButtons();
     this.dirty();
+    this.pushUndo();
   }
 
   // ── Drawing ──────────────────────────────────────────────────────────────────
