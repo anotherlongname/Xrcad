@@ -40,8 +40,9 @@ export class SelectionManager {
   private readonly tempMat = new THREE.Matrix4();
   private readonly hitPoint = new THREE.Vector3();
 
-  // Gesture-based manipulation state
-  private translateStart: { ctrlPos: THREE.Vector3; objPosMm: THREE.Vector3 } | null = null;
+  // Manipulation state
+  private xyDrag: { ctrl: ControllerState; plane: THREE.Plane; startHit: THREE.Vector3; startPosMm: THREE.Vector3 } | null = null;
+  private zDrag:  { plane: THREE.Plane; startHit: THREE.Vector3; startPosMm: THREE.Vector3 } | null = null;
   private rotateStart:    { ctrlQuat: THREE.Quaternion; objQuat: THREE.Quaternion } | null = null;
   private activeDimIdx  = 0;
   private resizeStepIdx = 1;
@@ -186,29 +187,57 @@ export class SelectionManager {
 
   // ── Mode: selected ───────────────────────────────────────────────────────────
 
-  private updateSelected(_cameraForward: THREE.Vector3): void {
+  private updateSelected(cameraForward: THREE.Vector3): void {
     const obj = (this.mode as Extract<Mode, { kind: 'selected' }>).object;
     let changed = false;
 
-    // ── Right grip → 3D translate ─────────────────────────────────────────────
-    if (this.right.gripJustDown) {
-      const pos = new THREE.Vector3();
-      this.right.controller.getWorldPosition(pos);
-      this.translateStart = { ctrlPos: pos, objPosMm: obj.position.clone() };
+    // ── XY trigger drag (continue) ────────────────────────────────────────────
+    if (this.xyDrag) {
+      if (!this.xyDrag.ctrl.triggerDown) {
+        this.xyDrag = null;
+      } else {
+        const ray = this.rayFor(this.xyDrag.ctrl);
+        const hit = new THREE.Vector3();
+        if (ray.ray.intersectPlane(this.xyDrag.plane, hit)) {
+          const worldDelta = new THREE.Vector3(
+            hit.x - this.xyDrag.startHit.x,
+            0,
+            hit.z - this.xyDrag.startHit.z,
+          ).applyQuaternion(this.csgScene.quaternion.clone().invert());
+          obj.position.x = snapMm(this.xyDrag.startPosMm.x + Units.sceneToMm(worldDelta.x));
+          obj.position.y = snapMm(this.xyDrag.startPosMm.y + Units.sceneToMm(worldDelta.z));
+          changed = true;
+        }
+      }
     }
-    if (!this.right.gripDown) this.translateStart = null;
-    if (this.right.gripDown && this.translateStart) {
-      const cur = new THREE.Vector3();
-      this.right.controller.getWorldPosition(cur);
-      // Rotate world delta into csgScene local space so workspace yaw is handled.
-      const local = cur.clone().sub(this.translateStart.ctrlPos)
-        .applyQuaternion(this.csgScene.quaternion.clone().invert());
-      obj.position.x = snapMm(this.translateStart.objPosMm.x + Units.sceneToMm(local.x));
-      obj.position.y = snapMm(this.translateStart.objPosMm.y + Units.sceneToMm(local.z)); // Three.js Z → CAD Y
-      const minZ = CSGObject.restingZ(obj.type, obj.dims, obj.importedRestingZMm);
-      obj.position.z = Math.max(minZ,
-        Math.round((this.translateStart.objPosMm.z + Units.sceneToMm(local.y)) / Z_SNAP_MM) * Z_SNAP_MM);
-      changed = true;
+
+    // ── Right grip → Z drag ───────────────────────────────────────────────────
+    if (this.right.gripJustDown) {
+      const horizFwd = cameraForward.clone();
+      horizFwd.y = 0;
+      if (horizFwd.lengthSq() < 0.001) horizFwd.set(0, 0, -1);
+      horizFwd.normalize();
+      const objWorld = this.csgScene.localToWorld(new THREE.Vector3(
+        Units.mmToScene(obj.position.x),
+        Units.mmToScene(obj.position.z),  // CAD Z → Three.js Y
+        Units.mmToScene(obj.position.y),  // CAD Y → Three.js Z
+      ));
+      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(horizFwd, objWorld);
+      const startHit = new THREE.Vector3();
+      if (this.rayR.ray.intersectPlane(plane, startHit)) {
+        this.zDrag = { plane, startHit: startHit.clone(), startPosMm: obj.position.clone() };
+      }
+    }
+    if (!this.right.gripDown) this.zDrag = null;
+    if (this.right.gripDown && this.zDrag) {
+      const hit = new THREE.Vector3();
+      if (this.rayR.ray.intersectPlane(this.zDrag.plane, hit)) {
+        const dz = Units.sceneToMm(hit.y - this.zDrag.startHit.y);
+        const minZ = CSGObject.restingZ(obj.type, obj.dims, obj.importedRestingZMm);
+        obj.position.z = Math.max(minZ,
+          Math.round((this.zDrag.startPosMm.z + dz) / Z_SNAP_MM) * Z_SNAP_MM);
+        changed = true;
+      }
     }
 
     // ── Left grip → rotate ─────────────────────────────────────────────────────
@@ -284,7 +313,14 @@ export class SelectionManager {
       const hitObj = this.raycastObjects(ray);
       if (hitObj === null) { this.deselectObject(); return; }
       if (hitObj !== obj)  { this.selectObject(hitObj); return; }
-      // Trigger on the already-selected object body → no-op (grip handles movement)
+      // Trigger on already-selected object → start XY ground-plane drag
+      if (!this.xyDrag) {
+        const ground = this.currentGroundPlane();
+        const startHit = new THREE.Vector3();
+        if (ray.ray.intersectPlane(ground, startHit)) {
+          this.xyDrag = { ctrl, plane: ground, startHit: startHit.clone(), startPosMm: obj.position.clone() };
+        }
+      }
     }
 
     if (changed) {
@@ -314,7 +350,8 @@ export class SelectionManager {
     this.inspector.inspect(null);
     this.csgScene.setEditMode(false);
     this.resizeHandles.unbind();
-    this.translateStart = null;
+    this.xyDrag         = null;
+    this.zDrag          = null;
     this.rotateStart    = null;
     this.activeDimIdx   = 0;
     this.resizeStepIdx  = 1;
