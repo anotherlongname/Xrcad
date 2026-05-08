@@ -67,6 +67,9 @@ document.getElementById('file-ops-load')!.addEventListener('click', () => {
 document.getElementById('file-ops-stl')!.addEventListener('click', () => {
   manager.importSTL2D();
 });
+document.getElementById('file-ops-export-stl')!.addEventListener('click', () => {
+  manager.saveSTL();
+});
 
 manager.renderer.xr.addEventListener('sessionstart', () => {
   fileOps.style.display = 'none';
