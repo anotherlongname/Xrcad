@@ -8,6 +8,7 @@ import { WorkspaceScaler } from '../input/WorkspaceScaler';
 import { PrimitiveMenu } from '../ui/PrimitiveMenu';
 import { ObjectInspector } from '../ui/ObjectInspector';
 import { NumberInputManager } from '../ui/NumberInputManager';
+import { NumberInputPanel } from '../ui/NumberInputPanel';
 import { Exporter } from '../io/Exporter';
 import { Importer } from '../io/Importer';
 import { Units } from '../units/Units';
@@ -25,6 +26,7 @@ export class SceneManager {
   private readonly scaler: WorkspaceScaler;
   private readonly menu: PrimitiveMenu;
   private readonly inspector: ObjectInspector;
+  private readonly numInputPanel: NumberInputPanel;
 
   private readonly modelFactory = new XRControllerModelFactory();
 
@@ -77,8 +79,19 @@ export class SceneManager {
     this.scene.add(this.csgScene);
 
     // ── UI panels ─────────────────────────────────────────────────────────────
-    const numInput = new NumberInputManager();
-    this.inspector = new ObjectInspector(this.csgScene, numInput);
+    const numInputDom = new NumberInputManager();
+    this.numInputPanel = new NumberInputPanel();
+    this.scene.add(this.numInputPanel);
+
+    const openInput = (value: number, label: string, onConfirm: (v: number) => void): void => {
+      if (this.renderer.xr.isPresenting) {
+        this.numInputPanel.open(value, label, onConfirm);
+      } else {
+        numInputDom.open(value, label, onConfirm);
+      }
+    };
+
+    this.inspector = new ObjectInspector(this.csgScene, openInput);
     this.scene.add(this.inspector);
 
     // Menu is added to the scene (not to a grip) and starts hidden.
@@ -102,6 +115,7 @@ export class SceneManager {
     // ── Input managers ────────────────────────────────────────────────────────
     this.selector = new SelectionManager(
       this.left, this.right, this.csgScene, this.scene, this.inspector, this.menu,
+      this.numInputPanel,
     );
     this.selector.setRayLines(leftLine, rightLine);
     this.scaler = new WorkspaceScaler(this.left, this.right, this.csgScene, this.grid);
@@ -243,6 +257,15 @@ export class SceneManager {
         .addScaledVector(right, 0.18);
       this.inspector.position.y = Math.max(this._camPos.y - 0.1, 1.0);
       this.inspector.lookAt(this._camPos);
+    }
+
+    if (this.numInputPanel.visible) {
+      // Centered in front of the user, slightly below eye level
+      this.numInputPanel.position
+        .copy(this._camPos)
+        .addScaledVector(this._forward, 0.55);
+      this.numInputPanel.position.y = Math.max(this._camPos.y - 0.05, 1.0);
+      this.numInputPanel.lookAt(this._camPos);
     }
   }
 
