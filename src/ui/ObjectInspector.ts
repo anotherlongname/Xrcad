@@ -28,6 +28,15 @@ const PLUS_X  = VAL_X + VAL_W + 4;
  */
 export class ObjectInspector extends VRPanel {
   private obj: CSGObject | null = null;
+  private activeDimKey: string | null = null;
+  private activeDimStep = 5;
+
+  setActiveDim(key: string | null, step: number): void {
+    if (key === this.activeDimKey && step === this.activeDimStep) return;
+    this.activeDimKey = key;
+    this.activeDimStep = step;
+    this.dirty();
+  }
 
   constructor(
     private readonly scene: CSGScene,
@@ -268,12 +277,22 @@ export class ObjectInspector extends VRPanel {
       this.button(btn, isOp);
     }
 
-    // Dimension key labels and "mm" unit
+    // Dimension key labels, active highlight, and "mm" unit
     this.dimEntries().forEach(([key], i) => {
       const y = this.rowY(i);
+      if (key === this.activeDimKey) {
+        this.ctx.fillStyle = 'rgba(59,91,219,0.25)';
+        this.ctx.fillRect(PAD, y - 2, this.cw - 2 * PAD, BH + 4);
+      }
       this.text(key, PAD, y + 8, 16, '#94a3b8');
       this.text('mm', PLUS_X + PLUS_W + 4, y + 9, 14, '#475569');
     });
+
+    // Step size indicator (right-aligned near section header)
+    if (this.dimEntries().length) {
+      const dimHeaderY = 48 + STEP + PAD;
+      this.text(`step ${this.activeDimStep}mm`, this.cw - PAD, dimHeaderY - 4, 11, '#475569', 'right');
+    }
 
     // Position section header
     const posHeaderY = this.rowY(this.dimEntries().length) + PAD;
