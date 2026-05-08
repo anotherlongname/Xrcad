@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { VRPanel } from './VRPanel';
 import { CSGObject, Dimensions } from '../csg/CSGObject';
 import { CSGScene } from '../csg/CSGScene';
-import { NumberInputManager } from './NumberInputManager';
 
 const PAD  = 10;
 const BH   = 34;
@@ -32,7 +31,7 @@ export class ObjectInspector extends VRPanel {
 
   constructor(
     private readonly scene: CSGScene,
-    private readonly numInput: NumberInputManager,
+    private readonly openInput: (value: number, label: string, onConfirm: (v: number) => void) => void,
   ) {
     // 0.30m wide × 0.46m tall
     super(0.30, 0.46, 512);
@@ -119,7 +118,7 @@ export class ObjectInspector extends VRPanel {
         label: `${Math.round(val)}`,
         x: VAL_X, y, w: VAL_W, h: BH,
         action: () => {
-          this.numInput.open(dims[key] ?? 1, `${key} (mm)`, (v) => {
+          this.openInput(dims[key] ?? 1, `${key} (mm)`, (v) => {
             dims[key] = Math.max(1, Math.round(v));
             this.afterDimChange(obj);
           });
@@ -169,7 +168,7 @@ export class ObjectInspector extends VRPanel {
         label: `${displayVal()}`,
         x: VAL_X, y, w: VAL_W, h: BH,
         action: () => {
-          this.numInput.open(displayVal(), `pos ${label} (mm)`, (v) => {
+          this.openInput(displayVal(), `pos ${label} (mm)`, (v) => {
             if (isZ) {
               const h = CSGObject.restingZ(obj.type, obj.dims, obj.importedRestingZMm);
               obj.position.z = Math.round(v) + h;
@@ -215,7 +214,7 @@ export class ObjectInspector extends VRPanel {
         label: `${getDeg()}°`,
         x: VAL_X, y, w: VAL_W, h: BH,
         action: () => {
-          this.numInput.open(getDeg(), `rot ${axis.toUpperCase()} (deg)`, (v) => {
+          this.openInput(getDeg(), `rot ${axis.toUpperCase()} (deg)`, (v) => {
             obj.rotation[axis] = THREE.MathUtils.degToRad(v);
             this.afterRotChange(obj);
           });

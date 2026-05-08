@@ -6,6 +6,7 @@ import { CSGObject, CSGOperation, PrimitiveType } from '../csg/CSGObject';
 import { CSGScene } from '../csg/CSGScene';
 import { ObjectInspector } from '../ui/ObjectInspector';
 import { PrimitiveMenu } from '../ui/PrimitiveMenu';
+import { NumberInputPanel } from '../ui/NumberInputPanel';
 import { Units } from '../units/Units';
 
 const GRID_STEP_MM = 10;
@@ -61,6 +62,7 @@ export class SelectionManager {
     private readonly threeScene: THREE.Scene,
     private readonly inspector: ObjectInspector,
     private readonly menu: PrimitiveMenu,
+    private readonly numInputPanel: NumberInputPanel,
   ) {
     this.resizeHandles = new ResizeHandles();
     threeScene.add(this.resizeHandles);
@@ -101,6 +103,21 @@ export class SelectionManager {
   update(cameraForward: THREE.Vector3): void {
     this.updateRay(this.rayL, this.left.controller);
     this.updateRay(this.rayR, this.right.controller);
+
+    // Number-input keypad has highest priority — while open, all other interaction
+    // is suppressed so stray trigger presses don't also move objects.
+    if (this.numInputPanel.visible) {
+      for (const [ctrl, ray] of this.ctrlRays()) {
+        const hit = this.numInputPanel.hitTest(ray);
+        this.numInputPanel.onHover(hit);
+        if (ctrl.triggerJustDown && hit) {
+          this.numInputPanel.onPress(hit);
+          break;
+        }
+      }
+      this.updateRayLines();
+      return;
+    }
 
     switch (this.mode.kind) {
       case 'idle':     this.updateIdle(cameraForward);     break;
@@ -405,6 +422,7 @@ export class SelectionManager {
         this.inspector,
         this.resizeHandles,
         this.rotationHandles,
+        ...(this.numInputPanel.visible ? [this.numInputPanel] : []),
       ], true);
       line.scale.z = hits.length > 0 ? hits[0].distance : 5;
     }
