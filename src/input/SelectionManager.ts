@@ -191,6 +191,12 @@ export class SelectionManager {
     const obj = (this.mode as Extract<Mode, { kind: 'selected' }>).object;
     let changed = false;
 
+    // Both grips down → deselect so workspace scale/rotate gesture works cleanly.
+    if (this.left.gripDown && this.right.gripDown) {
+      this.deselectObject();
+      return;
+    }
+
     // ── XY trigger drag (continue) ────────────────────────────────────────────
     if (this.xyDrag) {
       if (!this.xyDrag.ctrl.triggerDown) {
