@@ -29,6 +29,7 @@ export class ControllerState {
   private prevGrip = false;
   private prevPrimary = false;
   private prevSecondary = false;
+  private gamepad: Gamepad | null = null;
 
   constructor(
     handedness: 'left' | 'right',
@@ -55,6 +56,7 @@ export class ControllerState {
         if (src.handedness === this.handedness) { gp = src.gamepad ?? null; break; }
       }
     }
+    this.gamepad = gp;
 
     const trigger   = gp?.buttons[0]?.pressed ?? false;
     const grip      = gp?.buttons[1]?.pressed ?? false;
@@ -79,5 +81,14 @@ export class ControllerState {
     this.prevGrip      = grip;
     this.prevPrimary   = primary;
     this.prevSecondary = secondary;
+  }
+
+  /** Fire a haptic pulse. Silently ignored on devices without haptics. */
+  pulse(intensity = 0.3, durationMs = 30): void {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const actuator = (this.gamepad?.hapticActuators as any)?.[0];
+    if (actuator && typeof actuator.pulse === 'function') {
+      void actuator.pulse(intensity, durationMs);
+    }
   }
 }

@@ -74,10 +74,14 @@ export abstract class VRPanel extends THREE.Group {
     }
   }
 
-  onPress(id: string | null): void {
+  onPress(id: string | null, haptic?: () => void): void {
     if (!id) return;
+    haptic?.();
     this.buttons.find(b => b.id === id)?.action();
   }
+
+  /** The underlying plane mesh, used for raycaster hit-type detection. */
+  get panelMesh(): THREE.Mesh { return this.mesh; }
 
   protected get hovered(): string | null {
     return this.hoveredId;

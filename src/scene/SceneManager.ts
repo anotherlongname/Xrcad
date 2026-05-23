@@ -114,8 +114,8 @@ export class SceneManager {
     this.scene.add(this.menu);
 
     // ── Controllers ───────────────────────────────────────────────────────────
-    const [leftCtrl, leftGrip, leftLine]   = this.setupController(0);
-    const [rightCtrl, rightGrip, rightLine] = this.setupController(1);
+    const [leftCtrl, leftGrip, leftLine, leftDot]    = this.setupController(0);
+    const [rightCtrl, rightGrip, rightLine, rightDot] = this.setupController(1);
 
     this.left  = new ControllerState('left',  leftCtrl,  leftGrip);
     this.right = new ControllerState('right', rightCtrl, rightGrip);
@@ -125,7 +125,7 @@ export class SceneManager {
       this.left, this.right, this.csgScene, this.scene, this.inspector, this.menu,
       this.numInputPanel, pushUndo,
     );
-    this.selector.setRayLines(leftLine, rightLine);
+    this.selector.setRayLines(leftLine, rightLine, leftDot, rightDot);
     this.scaler = new WorkspaceScaler(this.left, this.right, this.csgScene, this.grid);
 
     this.undoManager.push(this.csgScene); // S0: initial empty scene
@@ -150,28 +150,36 @@ export class SceneManager {
     this.scene.add(sun);
   }
 
-  private setupController(index: number): [THREE.XRTargetRaySpace, THREE.XRGripSpace, THREE.Line] {
+  private setupController(index: number): [THREE.XRTargetRaySpace, THREE.XRGripSpace, THREE.Line, THREE.Mesh] {
     const controller = this.renderer.xr.getController(index);
-    const line = this.buildRayLine();
+    const [line, dot] = this.buildRayLine();
     controller.add(line);
+    controller.add(dot);
     this.scene.add(controller);
 
     const grip = this.renderer.xr.getControllerGrip(index);
     grip.add(this.modelFactory.createControllerModel(grip));
     this.scene.add(grip);
 
-    return [controller, grip, line];
+    return [controller, grip, line, dot];
   }
 
-  private buildRayLine(): THREE.Line {
+  private buildRayLine(): [THREE.Line, THREE.Mesh] {
     const geo = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(0, 0, 0),
       new THREE.Vector3(0, 0, -1),
     ]);
-    const mat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 });
+    const mat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
     const line = new THREE.Line(geo, mat);
     line.scale.z = 5;
-    return line;
+
+    // Small dot rendered at the ray tip (position updated each frame)
+    const dotGeo = new THREE.SphereGeometry(0.006, 8, 6);
+    const dotMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 });
+    const dot = new THREE.Mesh(dotGeo, dotMat);
+    dot.visible = false;
+
+    return [line, dot];
   }
 
   save2D(): void {

@@ -35,6 +35,8 @@ export class SelectionManager {
   private readonly resizeHandles: ResizeHandles;
   private leftLine:  THREE.Line | null = null;
   private rightLine: THREE.Line | null = null;
+  private leftDot:   THREE.Mesh | null = null;
+  private rightDot:  THREE.Mesh | null = null;
   private readonly rayL = new THREE.Raycaster();
   private readonly rayR = new THREE.Raycaster();
   private readonly tempMat = new THREE.Matrix4();
@@ -68,9 +70,11 @@ export class SelectionManager {
 
   // ── Public API ───────────────────────────────────────────────────────────────
 
-  setRayLines(left: THREE.Line, right: THREE.Line): void {
+  setRayLines(left: THREE.Line, right: THREE.Line, leftDot: THREE.Mesh, rightDot: THREE.Mesh): void {
     this.leftLine  = left;
     this.rightLine = right;
+    this.leftDot   = leftDot;
+    this.rightDot  = rightDot;
   }
 
   /** Auto-select an object without requiring a ray hit (used after STL import). */
@@ -200,9 +204,9 @@ export class SelectionManager {
       const menuHit = this.menu.visible ? this.menu.hitTest(ray) : null;
       this.menu.onHover(menuHit);
       if (ctrl.triggerJustDown) {
-        if (menuHit) { this.menu.onPress(menuHit); return; }
+        if (menuHit) { this.menu.onPress(menuHit, () => ctrl.pulse(0.15, 20)); return; }
         const obj = this.raycastObjects(ray);
-        if (obj) { this.selectObject(obj); return; }
+        if (obj) { this.selectObject(obj, ctrl); return; }
       }
     }
   }
@@ -233,17 +237,19 @@ export class SelectionManager {
           this.ghost.quaternion.copy(this.csgScene.quaternion);
           this.ghost.visible = true;
         }
-        if (ctrl.triggerJustDown) { this.placeObject(state, cameraForward); return; }
+        if (ctrl.triggerJustDown) { this.placeObject(state, cameraForward, ctrl); return; }
       }
     }
   }
 
-  private placeObject(state: Extract<Mode, { kind: 'placing' }>, cameraForward: THREE.Vector3): void {
-    // hitPoint is in world space; convert to csgScene local space.
-    // Three.js X → CAD X; Three.js Z → CAD Y (depth); CAD Z = resting height.
+  private placeObject(
+    state: Extract<Mode, { kind: 'placing' }>,
+    cameraForward: THREE.Vector3,
+    placingCtrl: ControllerState,
+  ): void {
     const local    = this.csgScene.worldToLocal(this.hitPoint.clone());
     const snapX    = snapMm(Units.sceneToMm(local.x));
-    const snapY    = snapMm(Units.sceneToMm(local.z));  // Three.js Z → CAD Y
+    const snapY    = snapMm(Units.sceneToMm(local.z));
     const restingZ = CSGObject.restingZ(state.type, CSGObject.defaultDims(state.type));
 
     const obj = this.csgScene.addObject(state.type, state.op);
@@ -252,9 +258,10 @@ export class SelectionManager {
     this.csgScene.compile();
     this.pushUndo();
 
+    placingCtrl.pulse(0.55, 50);
     this.clearGhost();
     this.menu.clearSelection();
-    this.selectObject(obj);
+    this.selectObject(obj, placingCtrl);
   }
 
   // ── Mode: selected ───────────────────────────────────────────────────────────
@@ -305,6 +312,7 @@ export class SelectionManager {
       const startHit = new THREE.Vector3();
       if (this.rayR.ray.intersectPlane(plane, startHit)) {
         this.zDrag = { plane, startHit: startHit.clone(), startPosMm: obj.position.clone() };
+        this.right.pulse(0.25, 30);
       }
     }
     if (!this.right.gripDown) {
@@ -332,6 +340,7 @@ export class SelectionManager {
         objQuat: new THREE.Quaternion().setFromEuler(
           new THREE.Euler(obj.rotation.x, obj.rotation.y, obj.rotation.z, 'XYZ')),
       };
+      this.left.pulse(0.25, 30);
     }
     if (!this.left.gripDown) {
       const wasRotating = this.rotateStart !== null;
@@ -400,11 +409,11 @@ export class SelectionManager {
       this.menu.onHover(menuHit);
 
       if (!ctrl.triggerJustDown) continue;
-      if (inspHit) { this.inspector.onPress(inspHit); return; }
-      if (menuHit) { this.menu.onPress(menuHit);      return; }
+      if (inspHit) { this.inspector.onPress(inspHit, () => ctrl.pulse(0.15, 20)); return; }
+      if (menuHit) { this.menu.onPress(menuHit,      () => ctrl.pulse(0.15, 20)); return; }
       const hitObj = this.raycastObjects(ray);
       if (hitObj === null) { this.deselectObject(); return; }
-      if (hitObj !== obj)  { this.selectObject(hitObj); return; }
+      if (hitObj !== obj)  { this.selectObject(hitObj, ctrl); return; }
       // Trigger on already-selected object → start XY ground-plane drag
       if (!this.xyDrag) {
         const ground = this.currentGroundPlane();
@@ -430,11 +439,12 @@ export class SelectionManager {
     return new THREE.Plane(new THREE.Vector3(0, 1, 0), -this.csgScene.position.y);
   }
 
-  private selectObject(obj: CSGObject): void {
+  private selectObject(obj: CSGObject, triggerCtrl?: ControllerState): void {
     this.mode = { kind: 'selected', object: obj };
     this.inspector.inspect(obj);
     this.csgScene.setEditMode(true);
     this.resizeHandles.bindTo(obj);
+    triggerCtrl?.pulse(0.4, 40);
   }
 
   private deselectObject(): void {
@@ -481,18 +491,24 @@ export class SelectionManager {
     }
   }
 
+  private readonly _panelColor  = new THREE.Color(0x60a5fa);
+  private readonly _defaultColor = new THREE.Color(0xffffff);
+
   private updateRayLines(): void {
-    const pairs: [THREE.Raycaster, THREE.Line | null][] = [
-      [this.rayL, this.leftLine],
-      [this.rayR, this.rightLine],
+    const pairs: [THREE.Raycaster, THREE.Line | null, THREE.Mesh | null][] = [
+      [this.rayL, this.leftLine,  this.leftDot],
+      [this.rayR, this.rightLine, this.rightDot],
     ];
 
-    // Exclude the selected object's brush so it doesn't truncate the ray while
-    // the user is trying to point at a menu or panel behind/around the object.
     const selectedBrush = this.mode.kind === 'selected' ? this.mode.object.brush : null;
     const selectables = this.csgScene.selectableObjects.filter(b => b !== selectedBrush);
+    const panels = [
+      this.menu.panelMesh,
+      this.inspector.panelMesh,
+      this.numInputPanel.panelMesh,
+    ];
 
-    for (const [ray, line] of pairs) {
+    for (const [ray, line, dot] of pairs) {
       if (!line) continue;
       const hits = ray.intersectObjects([
         ...selectables,
@@ -501,7 +517,24 @@ export class SelectionManager {
         this.resizeHandles,
         ...(this.numInputPanel.visible ? [this.numInputPanel] : []),
       ], true);
-      line.scale.z = hits.length > 0 ? hits[0].distance : 5;
+
+      const dist = hits.length > 0 ? hits[0].distance : 5;
+      line.scale.z = dist;
+
+      // Blue beam when pointing at a UI panel, white otherwise
+      const hitPanel = hits.length > 0 && panels.includes(hits[0].object as THREE.Mesh);
+      (line.material as THREE.LineBasicMaterial).color.copy(
+        hitPanel ? this._panelColor : this._defaultColor,
+      );
+
+      // Dot at ray tip
+      if (dot) {
+        dot.visible = hits.length > 0;
+        dot.position.z = -dist;
+        (dot.material as THREE.MeshBasicMaterial).color.copy(
+          hitPanel ? this._panelColor : this._defaultColor,
+        );
+      }
     }
   }
 
