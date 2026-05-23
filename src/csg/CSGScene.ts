@@ -16,6 +16,13 @@ function base64ToFloat32(b64: string): Float32Array {
   return new Float32Array(bytes.buffer);
 }
 
+const OUTLINE_MAT = new THREE.MeshBasicMaterial({
+  color: 0x60a5fa,
+  side: THREE.BackSide,
+  transparent: true,
+  opacity: 0.7,
+});
+
 export class CSGScene extends THREE.Group {
   objects: CSGObject[] = [];
   private evaluator = new Evaluator();
@@ -23,6 +30,8 @@ export class CSGScene extends THREE.Group {
   /** Individual brushes shown during edit mode. */
   readonly previewGroup = new THREE.Group();
   private editMode = false;
+  private outlineMesh: THREE.Mesh | null = null;
+  private outlinedBrush: THREE.Object3D | null = null;
 
   constructor() {
     super();
@@ -120,6 +129,25 @@ export class CSGScene extends THREE.Group {
     this.editMode = on;
     this.previewGroup.visible = on;
     if (this.resultMesh) this.resultMesh.visible = !on;
+  }
+
+  /** Add a blue BackSide outline to the given brush (shown in edit mode). */
+  highlightBrush(brush: import('three-bvh-csg').Brush): void {
+    this.clearHighlight();
+    const mesh = new THREE.Mesh(brush.geometry, OUTLINE_MAT);
+    mesh.scale.setScalar(1.04);
+    brush.add(mesh);
+    this.outlineMesh    = mesh;
+    this.outlinedBrush  = brush;
+  }
+
+  clearHighlight(): void {
+    if (this.outlineMesh && this.outlinedBrush) {
+      this.outlinedBrush.remove(this.outlineMesh);
+      // material is shared constant — don't dispose it
+      this.outlineMesh = null;
+      this.outlinedBrush = null;
+    }
   }
 
   /** Rebuild all brushes after workspace scale change, then recompile. */

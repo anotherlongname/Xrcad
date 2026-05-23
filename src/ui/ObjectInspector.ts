@@ -50,9 +50,13 @@ export class ObjectInspector extends VRPanel {
 
   inspect(obj: CSGObject | null): void {
     this.obj = obj;
-    this.visible = obj !== null;
-    this.rebuildButtons();
-    if (obj) this.dirty();
+    if (obj) {
+      this.fadeIn();
+      this.rebuildButtons();
+      this.dirty();
+    } else {
+      this.fadeOut();
+    }
   }
 
   // ── Button layout ────────────────────────────────────────────────────────────

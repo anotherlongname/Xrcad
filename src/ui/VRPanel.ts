@@ -25,6 +25,9 @@ export abstract class VRPanel extends THREE.Group {
   protected readonly mesh: THREE.Mesh;
   protected buttons: PanelButton[] = [];
   private hoveredId: string | null = null;
+  private _fadeOpacity    = 1;
+  private _targetOpacity  = 1;
+  private static readonly FADE_RATE = 1 / 0.15; // full transition in 150 ms
 
   constructor(worldWidth: number, worldHeight: number, canvasWidth = 512) {
     super();
@@ -48,6 +51,27 @@ export abstract class VRPanel extends THREE.Group {
   dirty(): void {
     this.draw();
     this.texture.needsUpdate = true;
+  }
+
+  /** Show with a fade-in. */
+  fadeIn(): void {
+    this.visible = true;
+    this._targetOpacity = 1;
+    (this.mesh.material as THREE.MeshBasicMaterial).opacity = this._fadeOpacity;
+  }
+
+  /** Fade out, then hide. */
+  fadeOut(): void {
+    this._targetOpacity = 0;
+  }
+
+  /** Advance fade animation. Call once per frame with elapsed seconds. */
+  tick(dtSec: number): void {
+    if (this._fadeOpacity === this._targetOpacity) return;
+    const dir = this._targetOpacity > this._fadeOpacity ? 1 : -1;
+    this._fadeOpacity = Math.max(0, Math.min(1, this._fadeOpacity + dir * VRPanel.FADE_RATE * dtSec));
+    (this.mesh.material as THREE.MeshBasicMaterial).opacity = this._fadeOpacity;
+    if (this._fadeOpacity === 0) this.visible = false;
   }
 
   protected abstract draw(): void;

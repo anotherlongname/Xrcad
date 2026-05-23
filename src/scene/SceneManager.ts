@@ -14,6 +14,7 @@ import { Importer } from '../io/Importer';
 import { Units } from '../units/Units';
 import { UndoManager } from '../input/UndoManager';
 import { showToast } from '../ui/Toast';
+import { ObjectLabelSystem } from '../ui/ObjectLabelSystem';
 
 export class SceneManager {
   readonly renderer: THREE.WebGLRenderer;
@@ -33,6 +34,7 @@ export class SceneManager {
   private readonly modelFactory = new XRControllerModelFactory();
 
   private readonly undoManager = new UndoManager();
+  private readonly labels: ObjectLabelSystem;
   private xrMode: 'immersive-vr' | 'immersive-ar' | null = null;
   private lastScale = -1;
 
@@ -130,6 +132,8 @@ export class SceneManager {
 
     this.undoManager.push(this.csgScene); // S0: initial empty scene
 
+    this.labels = new ObjectLabelSystem(this.csgScene, this.scene);
+
     window.addEventListener('resize', this.onResize);
   }
 
@@ -226,7 +230,18 @@ export class SceneManager {
     this.renderer.setAnimationLoop(this.animate);
   }
 
+  private lastFrameTime = performance.now();
+
   private animate = (): void => {
+    const now = performance.now();
+    const dtSec = Math.min((now - this.lastFrameTime) / 1000, 0.1);
+    this.lastFrameTime = now;
+
+    // Advance panel fade animations
+    this.inspector.tick(dtSec);
+    this.menu.tick(dtSec);
+    this.numInputPanel.tick(dtSec);
+
     const session = this.renderer.xr.getSession();
     this.left.update(session);
     this.right.update(session);
@@ -264,6 +279,7 @@ export class SceneManager {
     }
 
     this.updateFloatingPanels();
+    this.labels.update();
 
     this.renderer.render(this.scene, this.camera);
   };
@@ -273,12 +289,12 @@ export class SceneManager {
       this.dismissMenu();
     } else {
       this.positionMenuInFront();
-      this.menu.visible = true;
+      this.menu.fadeIn();
     }
   }
 
   private dismissMenu(): void {
-    this.menu.visible = false;
+    this.menu.fadeOut();
     this.menu.clearSelection();
     this.selector.cancelPlacing();
   }

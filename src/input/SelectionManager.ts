@@ -427,6 +427,7 @@ export class SelectionManager {
     if (changed) {
       obj.rebuildBrush();
       this.csgScene.compile();
+      this.csgScene.highlightBrush(obj.brush);
       this.resizeHandles.refresh(obj);
       this.inspector.dirty();
     }
@@ -443,6 +444,7 @@ export class SelectionManager {
     this.mode = { kind: 'selected', object: obj };
     this.inspector.inspect(obj);
     this.csgScene.setEditMode(true);
+    this.csgScene.highlightBrush(obj.brush);
     this.resizeHandles.bindTo(obj);
     triggerCtrl?.pulse(0.4, 40);
   }
@@ -451,6 +453,7 @@ export class SelectionManager {
     this.mode = { kind: 'idle' };
     this.inspector.inspect(null);
     this.csgScene.setEditMode(false);
+    this.csgScene.clearHighlight();
     this.resizeHandles.unbind();
     this.xyDrag            = null;
     this.zDrag             = null;
