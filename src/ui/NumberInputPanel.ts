@@ -40,11 +40,11 @@ export class NumberInputPanel extends VRPanel {
     this.onConfirm  = onConfirm;
     this.rebuildButtons();
     this.dirty();
-    this.visible = true;
+    this.fadeIn();
   }
 
   close(): void {
-    this.visible   = false;
+    this.fadeOut();
     this.onConfirm = null;
   }
 

@@ -13,6 +13,8 @@ import { Exporter } from '../io/Exporter';
 import { Importer } from '../io/Importer';
 import { Units } from '../units/Units';
 import { UndoManager } from '../input/UndoManager';
+import { showToast } from '../ui/Toast';
+import { ObjectLabelSystem } from '../ui/ObjectLabelSystem';
 
 export class SceneManager {
   readonly renderer: THREE.WebGLRenderer;
@@ -32,6 +34,7 @@ export class SceneManager {
   private readonly modelFactory = new XRControllerModelFactory();
 
   private readonly undoManager = new UndoManager();
+  private readonly labels: ObjectLabelSystem;
   private xrMode: 'immersive-vr' | 'immersive-ar' | null = null;
   private lastScale = -1;
 
@@ -113,8 +116,8 @@ export class SceneManager {
     this.scene.add(this.menu);
 
     // ── Controllers ───────────────────────────────────────────────────────────
-    const [leftCtrl, leftGrip, leftLine]   = this.setupController(0);
-    const [rightCtrl, rightGrip, rightLine] = this.setupController(1);
+    const [leftCtrl, leftGrip, leftLine, leftDot]    = this.setupController(0);
+    const [rightCtrl, rightGrip, rightLine, rightDot] = this.setupController(1);
 
     this.left  = new ControllerState('left',  leftCtrl,  leftGrip);
     this.right = new ControllerState('right', rightCtrl, rightGrip);
@@ -124,10 +127,12 @@ export class SceneManager {
       this.left, this.right, this.csgScene, this.scene, this.inspector, this.menu,
       this.numInputPanel, pushUndo,
     );
-    this.selector.setRayLines(leftLine, rightLine);
+    this.selector.setRayLines(leftLine, rightLine, leftDot, rightDot);
     this.scaler = new WorkspaceScaler(this.left, this.right, this.csgScene, this.grid);
 
     this.undoManager.push(this.csgScene); // S0: initial empty scene
+
+    this.labels = new ObjectLabelSystem(this.csgScene, this.scene);
 
     window.addEventListener('resize', this.onResize);
   }
@@ -149,58 +154,94 @@ export class SceneManager {
     this.scene.add(sun);
   }
 
-  private setupController(index: number): [THREE.XRTargetRaySpace, THREE.XRGripSpace, THREE.Line] {
+  private setupController(index: number): [THREE.XRTargetRaySpace, THREE.XRGripSpace, THREE.Line, THREE.Mesh] {
     const controller = this.renderer.xr.getController(index);
-    const line = this.buildRayLine();
+    const [line, dot] = this.buildRayLine();
     controller.add(line);
+    controller.add(dot);
     this.scene.add(controller);
 
     const grip = this.renderer.xr.getControllerGrip(index);
     grip.add(this.modelFactory.createControllerModel(grip));
     this.scene.add(grip);
 
-    return [controller, grip, line];
+    return [controller, grip, line, dot];
   }
 
-  private buildRayLine(): THREE.Line {
+  private buildRayLine(): [THREE.Line, THREE.Mesh] {
     const geo = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(0, 0, 0),
       new THREE.Vector3(0, 0, -1),
     ]);
-    const mat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 });
+    const mat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
     const line = new THREE.Line(geo, mat);
     line.scale.z = 5;
-    return line;
+
+    // Small dot rendered at the ray tip (position updated each frame)
+    const dotGeo = new THREE.SphereGeometry(0.006, 8, 6);
+    const dotMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 });
+    const dot = new THREE.Mesh(dotGeo, dotMat);
+    dot.visible = false;
+
+    return [line, dot];
   }
 
   save2D(): void {
     Exporter.save(this.csgScene);
+    showToast('Saved ✓', 'success');
   }
 
   saveSTL(): void {
+    if (!this.csgScene.resultGeometry) {
+      showToast('Nothing to export — add some objects first', 'error');
+      return;
+    }
     Exporter.exportSTL(this.csgScene);
+    showToast('STL exported ✓', 'success');
   }
 
   load2D(): void {
-    Importer.openFilePicker(this.csgScene, () => {
-      this.undoManager.reset(this.csgScene);
-      this.selector.deselect();
-    });
+    Importer.openFilePicker(
+      this.csgScene,
+      () => {
+        this.undoManager.reset(this.csgScene);
+        this.selector.deselect();
+        showToast('File loaded ✓', 'success');
+      },
+      () => showToast('Failed to load file', 'error'),
+    );
   }
 
   importSTL2D(): void {
-    Importer.importSTL2D(this.csgScene, 'add', (obj) => {
-      this.csgScene.compile();
-      this.selector.forceSelect(obj);
-      this.undoManager.push(this.csgScene);
-    });
+    Importer.importSTL2D(
+      this.csgScene,
+      'add',
+      (obj) => {
+        this.csgScene.compile();
+        this.selector.forceSelect(obj);
+        this.undoManager.push(this.csgScene);
+        showToast('STL imported ✓', 'success');
+      },
+      () => showToast('STL import failed', 'error'),
+    );
   }
 
   start(): void {
     this.renderer.setAnimationLoop(this.animate);
   }
 
+  private lastFrameTime = performance.now();
+
   private animate = (): void => {
+    const now = performance.now();
+    const dtSec = Math.min((now - this.lastFrameTime) / 1000, 0.1);
+    this.lastFrameTime = now;
+
+    // Advance panel fade animations
+    this.inspector.tick(dtSec);
+    this.menu.tick(dtSec);
+    this.numInputPanel.tick(dtSec);
+
     const session = this.renderer.xr.getSession();
     this.left.update(session);
     this.right.update(session);
@@ -238,6 +279,7 @@ export class SceneManager {
     }
 
     this.updateFloatingPanels();
+    this.labels.update();
 
     this.renderer.render(this.scene, this.camera);
   };
@@ -247,12 +289,12 @@ export class SceneManager {
       this.dismissMenu();
     } else {
       this.positionMenuInFront();
-      this.menu.visible = true;
+      this.menu.fadeIn();
     }
   }
 
   private dismissMenu(): void {
-    this.menu.visible = false;
+    this.menu.fadeOut();
     this.menu.clearSelection();
     this.selector.cancelPlacing();
   }
@@ -317,6 +359,7 @@ export class SceneManager {
 
   /** Desktop keyboard shortcuts for testing outside VR. */
   handleKeyDown(e: KeyboardEvent): void {
+    // ── Undo / Redo ─────────────────────────────────────────────────────────
     if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
       e.preventDefault();
       this.undoManager.undo(this.csgScene);
@@ -329,25 +372,62 @@ export class SceneManager {
       this.selector.deselect();
       return;
     }
-    if (e.key === 'b') { this.csgScene.addObject('box');      this.undoManager.push(this.csgScene); }
-    if (e.key === 'c') { this.csgScene.addObject('cylinder'); this.undoManager.push(this.csgScene); }
-    if (e.key === 's') { this.csgScene.addObject('sphere');   this.undoManager.push(this.csgScene); }
-    if (e.key === 'h') {
-      const last = this.csgScene.objects.at(-1);
-      if (last) {
-        last.operation = last.operation === 'add' ? 'subtract' : 'add';
-        last.rebuildBrush();
-        this.csgScene.compile();
-        this.undoManager.push(this.csgScene);
-      }
-    }
+
+    // ── Save / Export ────────────────────────────────────────────────────────
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
       e.preventDefault();
-      Exporter.save(this.csgScene);
+      this.save2D();
+      return;
     }
     if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
       e.preventDefault();
-      Exporter.exportSTL(this.csgScene);
+      this.saveSTL();
+      return;
+    }
+
+    // ── Arrow keys: nudge selected object ────────────────────────────────────
+    if (e.key.startsWith('Arrow')) {
+      e.preventDefault();
+      const step = 10; // mm per nudge
+      if (e.key === 'ArrowRight') { if (this.selector.nudgeSelected( step, 0, 0)) this.undoManager.push(this.csgScene); }
+      if (e.key === 'ArrowLeft')  { if (this.selector.nudgeSelected(-step, 0, 0)) this.undoManager.push(this.csgScene); }
+      if (e.key === 'ArrowUp'   && !e.shiftKey) { if (this.selector.nudgeSelected(0,  step, 0)) this.undoManager.push(this.csgScene); }
+      if (e.key === 'ArrowDown' && !e.shiftKey) { if (this.selector.nudgeSelected(0, -step, 0)) this.undoManager.push(this.csgScene); }
+      if (e.key === 'ArrowUp'   &&  e.shiftKey) { if (this.selector.nudgeSelected(0, 0,  step)) this.undoManager.push(this.csgScene); }
+      if (e.key === 'ArrowDown' &&  e.shiftKey) { if (this.selector.nudgeSelected(0, 0, -step)) this.undoManager.push(this.csgScene); }
+      return;
+    }
+
+    // ── Delete selected object ───────────────────────────────────────────────
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (this.selector.deleteSelected()) this.undoManager.push(this.csgScene);
+      return;
+    }
+
+    // ── Cycle active dimension / step size ───────────────────────────────────
+    if (e.key === ']') { this.selector.cycleActiveDim(1);  return; }
+    if (e.key === '[') { this.selector.cycleActiveDim(-1); return; }
+    if (e.key === '=' || e.key === '+') { this.selector.changeStepSize(1);  return; }
+    if (e.key === '-' || e.key === '_') { this.selector.changeStepSize(-1); return; }
+
+    // ── Resize active dim with < / > ────────────────────────────────────────
+    if (e.key === '.') { if (this.selector.resizeActiveDim(1))  this.undoManager.push(this.csgScene); return; }
+    if (e.key === ',') { if (this.selector.resizeActiveDim(-1)) this.undoManager.push(this.csgScene); return; }
+
+    // ── Add primitives ───────────────────────────────────────────────────────
+    if (!e.ctrlKey && !e.metaKey) {
+      if (e.key === 'b') { this.csgScene.addObject('box');      this.undoManager.push(this.csgScene); }
+      if (e.key === 'c') { this.csgScene.addObject('cylinder'); this.undoManager.push(this.csgScene); }
+      if (e.key === 's') { this.csgScene.addObject('sphere');   this.undoManager.push(this.csgScene); }
+      if (e.key === 'h') {
+        const last = this.csgScene.objects.at(-1);
+        if (last) {
+          last.operation = last.operation === 'add' ? 'subtract' : 'add';
+          last.rebuildBrush();
+          this.csgScene.compile();
+          this.undoManager.push(this.csgScene);
+        }
+      }
     }
   }
 

@@ -25,7 +25,7 @@ const DEFAULTS: Record<PrimitiveType, Dimensions> = {
 };
 
 const ADD_COLOR = 0x3366ff;
-const SUB_COLOR = 0xff3333;
+const SUB_COLOR = 0xff2200;
 
 export class CSGObject {
   readonly id: string;
@@ -108,11 +108,13 @@ export class CSGObject {
 
   buildBrush(): Brush {
     const geo = this.buildGeometry();
+    const isSub = this.operation === 'subtract';
     const mat = new THREE.MeshStandardMaterial({
-      color: this.operation === 'add' ? ADD_COLOR : SUB_COLOR,
+      color: isSub ? SUB_COLOR : ADD_COLOR,
       transparent: true,
-      opacity: 0.75,
+      opacity: isSub ? 0.35 : 0.75,
       roughness: 0.4,
+      side: isSub ? THREE.DoubleSide : THREE.FrontSide,
     });
     const brush = new Brush(geo, mat);
     this.applyTransformToBrush(brush);
@@ -122,9 +124,12 @@ export class CSGObject {
   rebuildBrush(): void {
     this.brush.geometry.dispose();
     this.brush.geometry = this.buildGeometry();
-    (this.brush.material as THREE.MeshStandardMaterial).color.set(
-      this.operation === 'add' ? ADD_COLOR : SUB_COLOR,
-    );
+    const isSub = this.operation === 'subtract';
+    const mat = this.brush.material as THREE.MeshStandardMaterial;
+    mat.color.set(isSub ? SUB_COLOR : ADD_COLOR);
+    mat.opacity  = isSub ? 0.35 : 0.75;
+    mat.side     = isSub ? THREE.DoubleSide : THREE.FrontSide;
+    mat.needsUpdate = true;
     this.applyTransformToBrush(this.brush);
   }
 

@@ -50,9 +50,13 @@ export class ObjectInspector extends VRPanel {
 
   inspect(obj: CSGObject | null): void {
     this.obj = obj;
-    this.visible = obj !== null;
-    this.rebuildButtons();
-    if (obj) this.dirty();
+    if (obj) {
+      this.fadeIn();
+      this.rebuildButtons();
+      this.dirty();
+    } else {
+      this.fadeOut();
+    }
   }
 
   // ── Button layout ────────────────────────────────────────────────────────────
@@ -277,6 +281,11 @@ export class ObjectInspector extends VRPanel {
 
     this.text(obj.type.toUpperCase(), this.cw / 2, 10, 22, '#93c5fd', 'center');
 
+    // Active dim subtitle — prominent feedback at top of panel
+    if (this.activeDimKey) {
+      this.text(`▶ ${this.activeDimKey.toUpperCase()}`, this.cw / 2, 34, 13, '#60a5fa', 'center');
+    }
+
     for (const btn of this.buttons) {
       const isOp = btn.id === 'op_toggle';
       this.button(btn, isOp);
@@ -286,17 +295,39 @@ export class ObjectInspector extends VRPanel {
     this.dimEntries().forEach(([key], i) => {
       const y = this.rowY(i);
       if (key === this.activeDimKey) {
-        this.ctx.fillStyle = 'rgba(59,91,219,0.25)';
+        // Stronger background + left accent bar
+        this.ctx.fillStyle = 'rgba(59,130,246,0.4)';
         this.ctx.fillRect(PAD, y - 2, this.cw - 2 * PAD, BH + 4);
+        this.ctx.fillStyle = '#60a5fa';
+        this.ctx.fillRect(PAD, y - 2, 4, BH + 4);
+        this.text(key, PAD + 6, y + 8, 16, '#93c5fd');
+      } else {
+        this.text(key, PAD, y + 8, 16, '#94a3b8');
       }
-      this.text(key, PAD, y + 8, 16, '#94a3b8');
       this.text('mm', PLUS_X + PLUS_W + 4, y + 9, 14, '#475569');
     });
 
-    // Step size indicator (right-aligned near section header)
+    // Step indicator: 4 dots showing [1, 5, 10, 50] mm options
     if (this.dimEntries().length) {
       const dimHeaderY = 48 + STEP + PAD;
-      this.text(`step ${this.activeDimStep}mm`, this.cw - PAD, dimHeaderY - 4, 11, '#475569', 'right');
+      const STEPS = [1, 5, 10, 50];
+      const dotSize = 11;
+      const dotGap = 5;
+      const dotsW = STEPS.length * dotSize + (STEPS.length - 1) * dotGap;
+      const dotY = dimHeaderY - 16;
+      const dotsStartX = this.cw - PAD - dotsW;
+      STEPS.forEach((s, i) => {
+        const active = s === this.activeDimStep;
+        const dx = dotsStartX + i * (dotSize + dotGap);
+        this.ctx.fillStyle = active ? '#60a5fa' : '#1e293b';
+        this.ctx.fillRect(dx, dotY, dotSize, dotSize);
+        if (!active) {
+          this.ctx.strokeStyle = '#334155';
+          this.ctx.lineWidth = 1;
+          this.ctx.strokeRect(dx, dotY, dotSize, dotSize);
+        }
+      });
+      this.text(`${this.activeDimStep}mm`, dotsStartX - 6, dotY, 14, '#94a3b8', 'right');
     }
 
     // Position section header
@@ -316,5 +347,18 @@ export class ObjectInspector extends VRPanel {
       const y = this.rotRowY(i);
       this.text(axis.toUpperCase(), PAD, y + 9, 16, '#94a3b8');
     });
+
+    // Joystick control legend
+    const legendY = this.rotRowY(2) + BH + 24;
+    this.ctx.strokeStyle = '#1e293b';
+    this.ctx.lineWidth = 1;
+    this.ctx.beginPath();
+    this.ctx.moveTo(PAD, legendY - 10);
+    this.ctx.lineTo(this.cw - PAD, legendY - 10);
+    this.ctx.stroke();
+    this.text('controls', PAD, legendY, 12, '#475569');
+    this.text('L ←→  cycle dim',  PAD, legendY + 18, 13, '#64748b');
+    this.text('L ↑↓   step size', PAD, legendY + 36, 13, '#64748b');
+    this.text('R ↑↓   resize',    PAD, legendY + 54, 13, '#64748b');
   }
 }
