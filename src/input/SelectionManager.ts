@@ -99,6 +99,70 @@ export class SelectionManager {
     else if (this.mode.kind === 'placing') this.cancelPlacing();
   }
 
+  /** Nudge the selected object by the given mm deltas. Returns false if nothing is selected. */
+  nudgeSelected(dxMm: number, dyMm: number, dzMm: number): boolean {
+    if (this.mode.kind !== 'selected') return false;
+    const obj = this.mode.object;
+    obj.position.x += dxMm;
+    obj.position.y += dyMm;
+    const minZ = CSGObject.restingZ(obj.type, obj.dims, obj.importedRestingZMm);
+    obj.position.z = Math.max(minZ, obj.position.z + dzMm);
+    obj.rebuildBrush();
+    this.csgScene.compile();
+    this.resizeHandles.refresh(obj);
+    this.inspector.dirty();
+    return true;
+  }
+
+  /** Delete the currently selected object. Returns false if nothing is selected. */
+  deleteSelected(): boolean {
+    if (this.mode.kind !== 'selected') return false;
+    const obj = this.mode.object;
+    this.deselectObject();
+    this.csgScene.removeObject(obj.id);
+    return true;
+  }
+
+  /** Cycle which dimension is active by delta (+1 / -1). */
+  cycleActiveDim(delta: number): void {
+    if (this.mode.kind !== 'selected') return;
+    const obj = this.mode.object;
+    const dims = obj.dims as Record<string, number>;
+    const dimKeys = Object.keys(dims).filter(k => dims[k] !== undefined);
+    if (!dimKeys.length) return;
+    this.activeDimIdx = (this.activeDimIdx + delta + dimKeys.length) % dimKeys.length;
+    this.inspector.setActiveDim(dimKeys[this.activeDimIdx], SelectionManager.RESIZE_STEPS[this.resizeStepIdx]);
+  }
+
+  /** Change resize step size index by delta (+1 / -1). */
+  changeStepSize(delta: number): void {
+    this.resizeStepIdx = Math.max(0, Math.min(SelectionManager.RESIZE_STEPS.length - 1, this.resizeStepIdx + delta));
+    if (this.mode.kind === 'selected') {
+      const obj = this.mode.object;
+      const dims = obj.dims as Record<string, number>;
+      const dimKeys = Object.keys(dims).filter(k => dims[k] !== undefined);
+      const activeKey = dimKeys.length ? dimKeys[this.activeDimIdx % dimKeys.length] : null;
+      this.inspector.setActiveDim(activeKey, SelectionManager.RESIZE_STEPS[this.resizeStepIdx]);
+    }
+  }
+
+  /** Resize the active dimension by one step in the given direction (+1 / -1). */
+  resizeActiveDim(direction: 1 | -1): boolean {
+    if (this.mode.kind !== 'selected') return false;
+    const obj = this.mode.object;
+    const dims = obj.dims as Record<string, number>;
+    const dimKeys = Object.keys(dims).filter(k => dims[k] !== undefined);
+    if (!dimKeys.length) return false;
+    const key = dimKeys[this.activeDimIdx % dimKeys.length];
+    const step = SelectionManager.RESIZE_STEPS[this.resizeStepIdx];
+    dims[key] = Math.max(1, (dims[key] ?? 1) + direction * step);
+    obj.rebuildBrush();
+    this.csgScene.compile();
+    this.resizeHandles.refresh(obj);
+    this.inspector.dirty();
+    return true;
+  }
+
   // ── Per-frame update ─────────────────────────────────────────────────────────
 
   update(cameraForward: THREE.Vector3): void {

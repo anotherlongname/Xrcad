@@ -57,7 +57,7 @@ export class Importer {
   }
 
   /** Open a .xrcad file picker (2D browser context only). */
-  static openFilePicker(scene: CSGScene, onLoaded?: () => void): void {
+  static openFilePicker(scene: CSGScene, onLoaded?: () => void, onError?: () => void): void {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.xrcad,application/json';
@@ -70,6 +70,7 @@ export class Importer {
         onLoaded?.();
       } catch (e) {
         console.error('[XrCAD] Failed to parse file:', e);
+        onError?.();
       }
     };
     input.click();
@@ -80,6 +81,7 @@ export class Importer {
     scene: CSGScene,
     op: CSGOperation,
     onImported: (obj: CSGObject) => void,
+    onError?: () => void,
   ): void {
     const input = document.createElement('input');
     input.type = 'file';
@@ -94,6 +96,7 @@ export class Importer {
         onImported(obj);
       } catch (e) {
         console.error('[XrCAD] STL import failed:', e);
+        onError?.();
       }
     };
     input.click();
